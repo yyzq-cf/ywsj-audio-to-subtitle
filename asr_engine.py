@@ -136,42 +136,28 @@ class BcutASR:
 
     def _create_task(self):
         """Create ASR recognition task."""
-        payload = json.dumps({
-            "resource": self._download_url,
-            "model_id": "8",
-            "filters": ["narrate"],
-        })
         resp = self.session.post(f"{self.API_BASE}/task",
-                                 data=payload, headers=self.headers, timeout=30)
+                                 json={"resource": self._download_url, "model_id": "8"},
+                                 headers=self.headers, timeout=30)
         resp.raise_for_status()
         data = resp.json()
-        if data.get("code") != 0:
-            raise Exception(f"BCut task creation failed: {data.get('message', '')}")
         self.task_id = data["data"]["task_id"]
 
     def _query_result(self) -> dict:
         """Poll for ASR result."""
-        for _ in range(120):
+        for _ in range(500):
             resp = self.session.get(
                 f"{self.API_BASE}/task/result",
-                params={"task_id": self.task_id},
+                params={"model_id": 7, "task_id": self.task_id},
                 headers=self.headers, timeout=30
             )
             resp.raise_for_status()
             data = resp.json()
-            if data.get("code") != 0:
-                raise Exception(f"BCut query failed: {data.get('message', '')}")
-            state = data["data"].get("state", -1)
-            if state == 0:  # Ready
-                continue
-            if state == 1:  # Running
-                time.sleep(3)
-                continue
-            if state == 2:  # Complete
-                return data["data"]
-            if state == 3:  # Failed
-                raise Exception("BCut recognition failed")
-            time.sleep(3)
+            result_data = data.get("data", {})
+            state = result_data.get("state", -1)
+            if state == 4:  # Complete
+                return json.loads(result_data["result"])
+            time.sleep(1)
         raise Exception("BCut recognition timeout")
 
     def recognize(self, callback=None) -> List[ASRSegment]:
@@ -195,13 +181,12 @@ class BcutASR:
     def _parse_result(self, result: dict) -> List[ASRSegment]:
         """Parse BCut ASR result into segments."""
         segments = []
-        body = result.get("body", {})
-        sentences = body.get("sentences", [])
-
-        for sent in sentences:
-            text = sent.get("text", "").strip()
-            start_ms = sent.get("start", 0)
-            end_ms = sent.get("end", 0)
+        # BCut returns utterances with start_time/end_time
+        utterances = result.get("utterances", [])
+        for utt in utterances:
+            text = utt.get("text", "").strip()
+            start_ms = utt.get("start_time", 0)
+            end_ms = utt.get("end_time", 0)
             if text:
                 segments.append(ASRSegment(text, start_ms, end_ms))
         return segments
