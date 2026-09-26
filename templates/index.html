@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>音频转字幕</title>
+    <style>
+        :root {
+            --bg: #0f1117; --card: #1a1d27; --border: #2a2d3a;
+            --text: #e4e4e7; --muted: #71717a; --accent: #3b82f6;
+            --accent-hover: #2563eb; --success: #22c55e; --error: #ef4444;
+            --edited: #f59e0b;
+        }
+        [data-theme="light"] {
+            --bg: #f5f5f5; --card: #ffffff; --border: #e4e4e7;
+            --text: #1a1a2e; --muted: #71717a; --accent: #3b82f6; --accent-hover: #2563eb;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; transition: background 0.3s, color 0.3s; }
+        .container { max-width: 960px; margin: 0 auto; padding: 20px; }
+        header { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid var(--border); margin-bottom: 30px; }
+        header h1 { font-size: 24px; }
+        .header-right { display: flex; align-items: center; gap: 12px; }
+        .version-badge { color: var(--muted); font-size: 13px; }
+        .theme-btn { background: var(--card); border: 1px solid var(--border); color: var(--text); width: 36px; height: 36px; border-radius: 8px; cursor: pointer; font-size: 18px; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+        .card-title { font-size: 15px; color: var(--muted); margin-bottom: 16px; }
+        .drop-zone { border: 2px dashed var(--border); border-radius: 10px; padding: 40px; text-align: center; cursor: pointer; transition: border-color 0.3s, background 0.3s; }
+        .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent); background: rgba(59,130,246,0.05); }
+        .drop-zone p { color: var(--muted); }
+        .drop-zone .icon { font-size: 36px; margin-bottom: 8px; }
+        .file-info { display: none; align-items: center; gap: 8px; justify-content: center; padding: 12px; background: rgba(59,130,246,0.1); border-radius: 8px; margin-top: 12px; }
+        .file-info.show { display: flex; }
+        select, input[type="text"], input[type="password"], textarea { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 10px 12px; border-radius: 8px; width: 100%; font-size: 14px; }
+        select:focus, input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+        textarea { resize: vertical; min-height: 40px; font-family: inherit; }
+        .form-row { display: flex; gap: 12px; margin-bottom: 12px; }
+        .form-group { flex: 1; }
+        .form-group label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+        .btn { background: var(--accent); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 15px; font-weight: 600; transition: background 0.2s; }
+        .btn:hover { background: var(--accent-hover); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+        .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 6px; }
+        .btn-row { display: flex; gap: 12px; margin-top: 8px; }
+        .progress { display: none; margin-top: 16px; }
+        .progress.show { display: block; }
+        .progress-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+        .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
+        .progress-text { color: var(--muted); font-size: 13px; margin-top: 8px; text-align: center; }
+        .log-box { margin-top: 12px; max-height: 150px; overflow-y: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-family: 'Courier New', monospace; font-size: 12px; display: none; }
+        .log-box.show { display: block; }
+        .log-line { color: var(--muted); line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+        .log-line.error { color: var(--error); }
+        .log-line.success { color: var(--success); }
+        .footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px 0; }
+        .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); padding: 12px 24px; border-radius: 8px; font-size: 14px; z-index: 999; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+        .toast.show { opacity: 1; }
+        .toast.error { background: var(--error); color: white; }
+        .toast.success { background: var(--success); color: white; }
+        a { color: var(--accent); text-decoration: none; }
+        .editor-section { display: none; }
+        .editor-section.show { display: block; }
+        .editor-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; flex-wrap: wrap; }
+        .editor-toolbar .stats { color: var(--muted); font-size: 13px; }
+        .editor-table-wrap { overflow-x: auto; }
+        table.editor-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        table.editor-table th, table.editor-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+        table.editor-table th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--card); }
+        td.col-idx { width: 40px; color: var(--muted); text-align: center; }
+        td.col-time { width: 80px; color: var(--muted); font-size: 12px; }
+        td.col-text { word-break: break-word; }
+        td.col-actions { width: 60px; text-align: center; white-space: nowrap; }
+        .entry-text { color: var(--text); cursor: text; }
+        .entry-text.editing { padding: 0; }
+        .entry-text.edited { border-left: 3px solid var(--edited); padding-left: 6px; }
+        .entry-text textarea { width: 100%; min-height: 40px; padding: 6px 8px; font-size: 13px; border-color: var(--accent); }
+        .btn-edit { background: none; border: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 3px 6px; border-radius: 4px; font-size: 11px; }
+        .btn-edit:hover { border-color: var(--accent); color: var(--accent); }
+        .badge-edited { background: var(--edited); color: #000; padding: 1px 5px; border-radius: 3px; font-size: 10px; margin-left: 4px; }
+        .user-menu { position: relative; }
+        .user-btn { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+        .user-btn:hover { border-color: var(--accent); }
+        .user-dropdown { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px; min-width: 160px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        .user-dropdown.show { display: block; }
+        .user-dropdown button { background: none; border: none; color: var(--text); cursor: pointer; padding: 8px 12px; width: 100%; text-align: left; border-radius: 6px; font-size: 14px; }
+        .user-dropdown button:hover { background: var(--bg); }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 360px; max-width: 90vw; }
+        .modal h3 { margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <div class="nav-bar" style="display:flex; align-items:center; gap:16px;">
+            <h1>🎙️ 音频转字幕</h1>
+        </div>
+        <div class="header-right">
+            <span class="version-badge" id="version">{{ version }}</span>
+            <button class="theme-btn" onclick="toggleTheme()" id="themeBtn">🌙</button>
+            <a href="https://github.com/yyzq-cf/ywsj-audio-to-subtitle" target="_blank" class="theme-btn" style="display:flex; align-items:center; justify-content:center; text-decoration:none; color:var(--text);" title="GitHub">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            </a>
+            <button class="theme-btn" onclick="cleanupCache()" title="清理缓存" style="width:auto; padding:6px 10px; font-size:13px;">🧹</button>
+            <div class="user-menu" id="userMenu" style="display:none;">
+                <button class="user-btn" onclick="toggleUserMenu()">👤 账户 ▾</button>
+                <div class="user-dropdown" id="userDropdown">
+                    <button onclick="showChangePassword()">🔑 修改密码</button>
+                    <button onclick="doLogout()">🚪 退出登录</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="card" id="uploadCard">
+        <div class="card-title">📤 第一步：上传音频文件</div>
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+            <div class="icon">🎵</div>
+            <p>点击或拖拽音频文件到这里</p>
+            <p style="font-size:12px;margin-top:4px;">支持 MP3 / WAV / M4A / FLAC / OGG 等格式，最大 200MB</p>
+        </div>
+        <input type="file" id="fileInput" accept=".mp3,.wav,.m4a,.flac,.ogg,.aac,.wma,.opus" style="display:none">
+        <div class="file-info" id="fileInfo">
+            <span id="fileName"></span>
+            <span id="fileSize"></span>
+        </div>
+    </div>
+
+    <div class="card" id="settingsCard">
+        <div class="card-title">⚙️ 第二步：选择识别引擎</div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>语音识别引擎（均免费，无需配置）</label>
+                <select id="engine">
+                    {% for key, info in engines.items() %}
+                    <option value="{{ key }}">{{ info.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="btn-row">
+            <button class="btn" onclick="startTranscribe()" id="transcribeBtn">🚀 开始识别</button>
+        </div>
+    </div>
+
+    <div class="progress" id="progress">
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-text" id="progressText">识别中...</div>
+        <div class="log-box" id="logBox"></div>
+    </div>
+
+    <div class="card editor-section" id="editorSection">
+        <div class="editor-toolbar">
+            <div>
+                <span class="card-title" style="margin-bottom:0;">📝 字幕结果（可编辑）</span>
+                <span class="stats" id="editorStats"></span>
+            </div>
+            <div class="btn-row" style="margin-top:0; align-items:center; flex-wrap:wrap;">
+                <button class="btn btn-secondary btn-sm" onclick="scrollToTop()">⬆️ 顶部</button>
+                <button class="btn btn-sm" onclick="addSegment()" style="background:var(--success);">➕ 添加行</button>
+                <select id="downloadFormat" style="width:auto; padding:6px 10px; font-size:13px;">
+                    <option value="srt">SRT</option>
+                    <option value="vtt">VTT</option>
+                    <option value="txt">TXT</option>
+                </select>
+                <button class="btn btn-sm" onclick="downloadResult()" id="downloadBtn">💾 保存下载</button>
+            </div>
+        </div>
+        <div class="editor-table-wrap">
+            <table class="editor-table">
+                <thead><tr>
+                    <th class="col-idx">#</th>
+                    <th class="col-time">时间轴</th>
+                    <th class="col-text">字幕内容（点击编辑）</th>
+                    <th class="col-actions">操作</th>
+                </tr></thead>
+                <tbody id="editorBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>ywsj-audio-to-subtitle · <a href="https://github.com/yyzq-cf/ywsj-audio-to-subtitle" target="_blank">GitHub</a></p>
+    </div>
+</div>
+
+<div class="modal-overlay" id="pwdModal">
+    <div class="modal">
+        <h3>🔑 修改密码</h3>
+        <div class="form-group" style="margin-bottom:12px;"><label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">旧密码</label><input type="password" id="oldPassword" placeholder="输入当前密码"></div>
+        <div class="form-group" style="margin-bottom:12px;"><label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">新密码</label><input type="password" id="newPassword" placeholder="输入新密码（至少4位）"></div>
+        <div class="form-group" style="margin-bottom:16px;"><label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">确认新密码</label><input type="password" id="confirmPassword" placeholder="再次输入新密码"></div>
+        <div class="btn-row" style="margin-top:0;"><button class="btn btn-secondary" onclick="closePwdModal()">取消</button><button class="btn" onclick="submitChangePassword()">确认修改</button></div>
+    </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+    var selectedFile = null;
+    var currentTaskId = null;
+    var pollTimer = null;
+    var editorSegments = [];
+    var editedFlags = {};
+
+    function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+    function showToast(msg, type) { var t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast show ' + (type||''); setTimeout(function(){t.classList.remove('show');}, 3000); }
+    function showProgress(msg) { document.getElementById('progress').classList.add('show'); document.getElementById('progressText').textContent = msg; }
+    function hideProgress() { document.getElementById('progress').classList.remove('show'); }
+    function formatSize(b) { if(b<1024) return b+' B'; if(b<1048576) return (b/1024).toFixed(1)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
+
+    // File handling
+    document.getElementById('fileInput').addEventListener('change', function(e) { if(e.target.files.length) setFile(e.target.files[0]); });
+    var dz = document.getElementById('dropZone');
+    dz.addEventListener('dragover', function(e) { e.preventDefault(); dz.classList.add('dragover'); });
+    dz.addEventListener('dragleave', function() { dz.classList.remove('dragover'); });
+    dz.addEventListener('drop', function(e) { e.preventDefault(); dz.classList.remove('dragover'); if(e.dataTransfer.files.length) { setFile(e.dataTransfer.files[0]); document.getElementById('fileInput').files = e.dataTransfer.files; } });
+    function setFile(file) { selectedFile = file; document.getElementById('fileName').textContent = file.name; document.getElementById('fileSize').textContent = '(' + formatSize(file.size) + ')'; document.getElementById('fileInfo').classList.add('show'); }
+    window.setFile = setFile;
+
+    window.startTranscribe = function() {
+        if (!selectedFile) { showToast('请先上传音频文件', 'error'); return; }
+        document.getElementById('transcribeBtn').disabled = true;
+        document.getElementById('editorSection').classList.remove('show');
+        showProgress('上传中...');
+
+        var formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('engine', document.getElementById('engine').value);
+
+        fetch('/api/transcribe', { method: 'POST', body: formData })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) { showToast(data.error, 'error'); document.getElementById('transcribeBtn').disabled = false; hideProgress(); return; }
+                currentTaskId = data.task_id;
+                pollProgress();
+            })
+            .catch(function(e) { showToast('上传失败: ' + e.message, 'error'); document.getElementById('transcribeBtn').disabled = false; hideProgress(); });
+    };
+
+    function pollProgress() {
+        if (!currentTaskId) return;
+        fetch('/api/progress/' + currentTaskId)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                document.getElementById('progressFill').style.width = data.progress + '%';
+                document.getElementById('progressText').textContent = data.message || '';
+
+                if (data.logs && data.logs.length > 0) {
+                    var logBox = document.getElementById('logBox');
+                    logBox.classList.add('show');
+                    var html = data.logs.map(function(l) { return '<div class="log-line">' + esc(l) + '</div>'; }).join('');
+                    logBox.innerHTML = html;
+                    logBox.scrollTop = logBox.scrollHeight;
+                }
+
+                if (data.status === 'done') {
+                    clearTimeout(pollTimer);
+                    document.getElementById('transcribeBtn').disabled = false;
+                    renderEditor(data.segments || []);
+                    document.getElementById('editorSection').classList.add('show');
+                    showToast('识别完成!' + ' 共 ' + (data.total||0) + ' 条字幕', 'success');
+                } else if (data.status === 'error') {
+                    clearTimeout(pollTimer);
+                    document.getElementById('transcribeBtn').disabled = false;
+                    showToast(data.error || '识别失败', 'error');
+                    document.getElementById('progressText').textContent = '识别失败: ' + (data.error || '');
+                } else {
+                    pollTimer = setTimeout(pollProgress, 1500);
+                }
+            })
+            .catch(function() { pollTimer = setTimeout(pollProgress, 2000); });
+    }
+
+    function msToTime(ms) {
+        var h = Math.floor(ms/3600000), m = Math.floor((ms%3600000)/60000), s = Math.floor((ms%60000)/1000);
+        return (h>0?h+':':'') + (m<10&&h>0?'0':'') + m + ':' + (s<10?'0':'') + s;
+    }
+
+    function renderEditor(segments) {
+        editorSegments = segments;
+        editedFlags = {};
+        var body = document.getElementById('editorBody');
+        body.innerHTML = '';
+        for (var i = 0; i < segments.length; i++) {
+            (function(idx) {
+                var tr = document.createElement('tr');
+                tr.id = 'row-' + idx;
+                var seg = segments[idx];
+                tr.innerHTML = '<td class="col-idx">' + (idx+1) + '</td>' +
+                    '<td class="col-time">' + msToTime(seg.start) + '</td>' +
+                    '<td class="col-text entry-text" id="text-' + idx + '" onclick="editSegment(' + idx + ')" style="cursor:text;" title="点击编辑">' + esc(seg.text) + '</td>' +
+                    '<td class="col-actions"><button class="btn-edit" onclick="deleteSegment(' + idx + ')" title="删除">🗑️</button></td>';
+                body.appendChild(tr);
+            })(i);
+        }
+        updateStats();
+    }
+
+    function updateStats() {
+        var editedCount = Object.keys(editedFlags).length;
+        document.getElementById('editorStats').textContent = '共 ' + editorSegments.length + ' 条' + (editedCount > 0 ? '，已修改 ' + editedCount + ' 条' : '');
+    }
+
+    window.editSegment = function(index) {
+        var cell = document.getElementById('text-' + index);
+        if (!cell || cell.querySelector('textarea')) return;
+        var currentText = editorSegments[index] ? editorSegments[index].text : '';
+        cell.className = 'col-text entry-text editing';
+        cell.innerHTML = '<textarea id="editarea-' + index + '" rows="2">' + esc(currentText) + '</textarea>';
+        var ta = document.getElementById('editarea-' + index);
+        ta.focus();
+        ta.addEventListener('blur', function() { saveEdit(index); });
+        ta.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ta.blur(); }
+            if (e.key === 'Escape') { ta.value = currentText; renderCell(index, currentText); }
+        });
+    };
+
+    function renderCell(index, text) {
+        var cell = document.getElementById('text-' + index);
+        var isEd = editedFlags[index];
+        cell.className = 'col-text entry-text' + (isEd ? ' edited' : '');
+        cell.innerHTML = esc(text) + (isEd ? ' <span class="badge-edited">已改</span>' : '');
+    }
+
+    function saveEdit(index) {
+        var ta = document.getElementById('editarea-' + index);
+        if (!ta) return;
+        var newText = ta.value.trim();
+        fetch('/api/edit/' + currentTaskId, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ index: index, text: newText })
+        }).then(function(r) { return r.json(); }).then(function(data) {
+            if (data.ok) {
+                editorSegments[index].text = newText;
+                editedFlags[index] = true;
+                renderCell(index, newText);
+                updateStats();
+            } else { renderCell(index, editorSegments[index].text); showToast(data.error || '保存失败', 'error'); }
+        });
+    }
+
+    window.deleteSegment = function(index) {
+        if (!confirm('确认删除第' + (index+1) + '条？')) return;
+        fetch('/api/delete-segment/' + currentTaskId, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ index: index })
+        }).then(function(r) { return r.json(); }).then(function(data) {
+            if (data.ok) {
+                editorSegments.splice(index, 1);
+                delete editedFlags[index];
+                renderEditor(editorSegments);
+                showToast('已删除', 'success');
+            }
+        });
+    };
+
+    window.addSegment = function() {
+        var lastEnd = editorSegments.length > 0 ? editorSegments[editorSegments.length-1].end : 0;
+        var newStart = lastEnd;
+        var newEnd = lastEnd + 3000;
+        fetch('/api/add-segment/' + currentTaskId, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ text: '新字幕', start: newStart, end: newEnd })
+        }).then(function(r) { return r.json(); }).then(function(data) {
+            if (data.ok) {
+                editorSegments.push({ text: '新字幕', start: newStart, end: newEnd });
+                renderEditor(editorSegments);
+                // Scroll to new row
+                var newRow = document.getElementById('row-' + (editorSegments.length-1));
+                if (newRow) newRow.scrollIntoView({ behavior: 'smooth' });
+                showToast('已添加新行', 'success');
+            }
+        });
+    };
+
+    window.downloadResult = function() {
+        var fmt = document.getElementById('downloadFormat').value;
+        window.location.href = '/api/download/' + currentTaskId + '?format=' + fmt;
+    };
+
+    window.scrollToTop = function() { window.scrollTo({ top: 0, behavior: 'smooth' }); };
+
+    // Auth
+    fetch('/api/auth/status').then(function(r){return r.json();}).then(function(data){
+        if (data.auth_enabled) { document.getElementById('userMenu').style.display = 'block'; }
+    });
+    window.toggleUserMenu = function() { document.getElementById('userDropdown').classList.toggle('show'); };
+    window.doLogout = function() { window.location.href = '/logout'; };
+    window.showChangePassword = function() { document.getElementById('pwdModal').classList.add('show'); };
+    window.closePwdModal = function() { document.getElementById('pwdModal').classList.remove('show'); };
+    window.submitChangePassword = function() {
+        var oldPwd = document.getElementById('oldPassword').value;
+        var newPwd = document.getElementById('newPassword').value;
+        var confirmPwd = document.getElementById('confirmPassword').value;
+        if (!newPwd || newPwd.length < 4) { showToast('新密码至少4位', 'error'); return; }
+        if (newPwd !== confirmPwd) { showToast('两次密码不一致', 'error'); return; }
+        fetch('/api/auth/change-password', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ old_password: oldPwd, new_password: newPwd }) })
+            .then(function(r){return r.json();}).then(function(data){
+                if (data.ok) { showToast('密码已修改', 'success'); closePwdModal(); }
+                else { showToast(data.error || '修改失败', 'error'); }
+            });
+    };
+
+    window.cleanupCache = function() {
+        if (!confirm('确认清理任务缓存？')) return;
+        fetch('/api/cleanup', { method: 'POST' }).then(function(r){return r.json();}).then(function(data){ showToast(data.message || '已清理', 'success'); });
+    };
+
+    function toggleTheme() { var c=document.documentElement.getAttribute('data-theme'); if(c==='light'){document.documentElement.removeAttribute('data-theme');document.getElementById('themeBtn').textContent='🌙';localStorage.setItem('theme','dark');}else{document.documentElement.setAttribute('data-theme','light');document.getElementById('themeBtn').textContent='☀️';localStorage.setItem('theme','light');} }
+    window.toggleTheme = toggleTheme;
+    var savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); document.getElementById('themeBtn').textContent = '☀️'; }
+
+    // Close dropdown on outside click
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('#userMenu')) document.getElementById('userDropdown').classList.remove('show');
+    });
+})();
+</script>
+</body>
+</html>

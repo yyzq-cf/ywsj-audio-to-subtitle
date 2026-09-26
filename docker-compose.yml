@@ -1,0 +1,9 @@
+services:
+  audio-to-subtitle:
+    image: ywsj/audio-to-subtitle:latest
+    container_name: audio-to-subtitle
+    ports:
+      - "5210:5200"
+    volumes:
+      - ./data:/data
+    restart: always
