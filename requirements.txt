@@ -2,5 +2,3 @@ flask==3.1.1
 gunicorn==23.0.0
 requests==2.32.4
 pydub==0.25.1
-videocaptioner>=1.4.0
-edge-tts>=7.2.0
