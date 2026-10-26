@@ -146,6 +146,10 @@
                     <span id="sfKeyStatus" style="color:var(--muted);"></span>
                     <a href="#" onclick="showSettings('api'); return false;" style="color:var(--accent); margin-left:8px;">前往设置</a>
                 </div>
+                <div id="oaiKeyHint" style="margin-top:8px; font-size:12px; display:none;">
+                    <span id="oaiKeyStatus" style="color:var(--muted);"></span>
+                    <a href="#" onclick="showSettings('api'); return false;" style="color:var(--accent); margin-left:8px;">前往设置</a>
+                </div>
             </div>
         </div>
         <div class="btn-row">
@@ -208,20 +212,47 @@
         <div style="overflow-y:auto; flex:1;">
             <!-- API 配置 Tab -->
             <div class="tab-content" id="tabApi">
-                <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">配置硅基流动 API Key 后可使用多语言语音识别（中/英/日/韩/粤等）。<br>申请地址：<a href="https://cloud.siliconflow.cn" target="_blank" style="color:var(--accent);">cloud.siliconflow.cn</a></p>
-                <div class="form-group" style="margin-bottom:14px;">
-                    <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">API Key</label>
-                    <input type="text" id="sfApiKey" placeholder="sk-xxxxxxxx...">
+                <!-- 硅基流动 -->
+                <div style="margin-bottom:24px; padding-bottom:20px; border-bottom:1px solid var(--border);">
+                    <h4 style="margin:0 0 4px; font-size:15px;">🟢 硅基流动 SiliconFlow</h4>
+                    <p style="font-size:12px; color:var(--muted); margin:0 0 14px;">多语言识别（中/英/日/韩/粤），申请：<a href="https://cloud.siliconflow.cn" target="_blank" style="color:var(--accent);">cloud.siliconflow.cn</a></p>
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">API Key</label>
+                        <input type="text" id="sfApiKey" placeholder="sk-xxxxxxxx...">
+                    </div>
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">识别模型</label>
+                        <select id="sfModel" style="width:100%;">
+                            <option value="FunAudioLLM/SenseVoiceSmall">SenseVoiceSmall（推荐·多语言·快）</option>
+                            <option value="XingChenAGI/XingChenASR-V3.2-Ultra">XingChenASR-V3.2-Ultra（中文·高精度）</option>
+                            <option value="XingChenAGI/XingChenASR-V3.2">XingChenASR-V3.2（中文·标准）</option>
+                        </select>
+                    </div>
+                    <button class="btn" onclick="saveSfConfig()" style="width:100%;">💾 保存硅基流动配置</button>
                 </div>
-                <div class="form-group" style="margin-bottom:16px;">
-                    <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">识别模型</label>
-                    <select id="sfModel" style="width:100%;">
-                        <option value="FunAudioLLM/SenseVoiceSmall">SenseVoiceSmall（推荐·多语言·快）</option>
-                        <option value="XingChenAGI/XingChenASR-V3.2-Ultra">XingChenASR-V3.2-Ultra（中文·高精度）</option>
-                        <option value="XingChenAGI/XingChenASR-V3.2">XingChenASR-V3.2（中文·标准）</option>
-                    </select>
+                <!-- OpenAI 兼容 -->
+                <div>
+                    <h4 style="margin:0 0 4px; font-size:15px;">🔵 OpenAI 兼容接口</h4>
+                    <p style="font-size:12px; color:var(--muted); margin:0 0 14px;">支持 OpenAI官方 / Groq / Azure / 其他兼容服务，Whisper 多语言识别</p>
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">API Base URL</label>
+                        <input type="text" id="oaiBaseUrl" placeholder="https://api.openai.com/v1">
+                    </div>
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">API Key</label>
+                        <input type="text" id="oaiApiKey" placeholder="sk-xxxxxxxx...">
+                    </div>
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">模型名称</label>
+                        <input type="text" id="oaiModel" placeholder="whisper-1">
+                    </div>
+                    <div style="font-size:11px; color:var(--muted); margin-bottom:12px; padding:8px 10px; background:var(--bg); border-radius:6px;">
+                        💡 常见配置：<br>
+                        • OpenAI官方: <code>https://api.openai.com/v1</code> + <code>whisper-1</code><br>
+                        • Groq(免费): <code>https://api.groq.com/openai/v1</code> + <code>whisper-large-v3</code>
+                    </div>
+                    <button class="btn" onclick="saveOaiConfig()" style="width:100%;">💾 保存OpenAI配置</button>
                 </div>
-                <button class="btn" onclick="saveSfConfig()" style="width:100%;">💾 保存 API 配置</button>
             </div>
             <!-- 账户安全 Tab -->
             <div class="tab-content" id="tabAccount" style="display:none;">
@@ -337,12 +368,11 @@
         document.getElementById('engineLangText').textContent = langText ? ('支持语言: ' + langText) : '';
         // SF Key提示
         var sfHint = document.getElementById('sfKeyHint');
-        if (info.needs_key) {
-            sfHint.style.display = 'block';
-            loadSfStatus();
-        } else {
-            sfHint.style.display = 'none';
-        }
+        var oaiHint = document.getElementById('oaiKeyHint');
+        sfHint.style.display = (key === 'siliconflow') ? 'block' : 'none';
+        oaiHint.style.display = (key === 'openai') ? 'block' : 'none';
+        if (key === 'siliconflow') loadSfStatus();
+        if (key === 'openai') loadOaiStatus();
     }
     function loadSfStatus() {
         fetch('/api/config').then(function(r){return r.json();}).then(function(d){
@@ -356,14 +386,33 @@
             }
         }).catch(function(){});
     }
+    function loadOaiStatus() {
+        fetch('/api/config').then(function(r){return r.json();}).then(function(d){
+            var el = document.getElementById('oaiKeyStatus');
+            if (d.openai_api_key_set) {
+                el.textContent = '✅ 已配置 (' + d.openai_api_key + ' · ' + d.openai_model + ')';
+                el.style.color = 'var(--success)';
+            } else {
+                el.textContent = '❌ 未配置';
+                el.style.color = 'var(--muted)';
+            }
+        }).catch(function(){});
+    }
     // ===== 设置面板 =====
     function showSettings(tab) {
         // 加载当前配置
         fetch('/api/config').then(function(r){return r.json();}).then(function(d){
+            // 硅基流动
             document.getElementById('sfModel').value = d.siliconflow_model || 'FunAudioLLM/SenseVoiceSmall';
-            var inp = document.getElementById('sfApiKey');
-            inp.value = '';
-            inp.placeholder = d.siliconflow_api_key_set ? ('当前: ' + d.siliconflow_api_key) : 'sk-xxxxxxxx...';
+            var sfInp = document.getElementById('sfApiKey');
+            sfInp.value = '';
+            sfInp.placeholder = d.siliconflow_api_key_set ? ('当前: ' + d.siliconflow_api_key) : 'sk-xxxxxxxx...';
+            // OpenAI
+            document.getElementById('oaiBaseUrl').value = d.openai_base_url || 'https://api.openai.com/v1';
+            document.getElementById('oaiModel').value = d.openai_model || 'whisper-1';
+            var oaiInp = document.getElementById('oaiApiKey');
+            oaiInp.value = '';
+            oaiInp.placeholder = d.openai_api_key_set ? ('当前: ' + d.openai_api_key) : 'sk-xxxxxxxx...';
         });
         document.getElementById('settingsModal').classList.add('show');
         if (tab) switchSettingsTab(tab); else switchSettingsTab('api');
@@ -395,12 +444,27 @@
         fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
             .then(function(r){return r.json();})
             .then(function(d){
-                if (d.ok) { showToast('配置已保存', 'success'); loadSfStatus(); }
+                if (d.ok) { showToast('硅基流动配置已保存', 'success'); loadSfStatus(); }
                 else { showToast('保存失败', 'error'); }
             })
             .catch(function(e){ showToast('保存失败: ' + e.message, 'error'); });
     }
     window.saveSfConfig = saveSfConfig;
+    function saveOaiConfig() {
+        var key = document.getElementById('oaiApiKey').value.trim();
+        var baseUrl = document.getElementById('oaiBaseUrl').value.trim();
+        var model = document.getElementById('oaiModel').value.trim();
+        var body = { openai_base_url: baseUrl, openai_model: model };
+        if (key) body.openai_api_key = key;
+        fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+            .then(function(r){return r.json();})
+            .then(function(d){
+                if (d.ok) { showToast('OpenAI配置已保存', 'success'); loadOaiStatus(); }
+                else { showToast('保存失败', 'error'); }
+            })
+            .catch(function(e){ showToast('保存失败: ' + e.message, 'error'); });
+    }
+    window.saveOaiConfig = saveOaiConfig;
 
     // 页面加载时获取引擎信息
     fetch('/api/engines').then(function(r){return r.json();}).then(function(d){

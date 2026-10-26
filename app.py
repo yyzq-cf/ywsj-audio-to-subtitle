@@ -254,16 +254,28 @@ def config_api():
             cfg['siliconflow_api_key'] = data['siliconflow_api_key'].strip()
         if 'siliconflow_model' in data:
             cfg['siliconflow_model'] = data['siliconflow_model'].strip() or 'FunAudioLLM/SenseVoiceSmall'
+        if 'openai_api_key' in data:
+            cfg['openai_api_key'] = data['openai_api_key'].strip()
+        if 'openai_base_url' in data:
+            cfg['openai_base_url'] = data['openai_base_url'].strip() or 'https://api.openai.com/v1'
+        if 'openai_model' in data:
+            cfg['openai_model'] = data['openai_model'].strip() or 'whisper-1'
         save_config(cfg)
         return jsonify({'ok': True})
     # GET: 返回配置（API key脱敏）
     cfg = load_config()
-    key = cfg.get('siliconflow_api_key', '')
-    masked = key[:8] + '****' + key[-4:] if len(key) > 12 else ('****' if key else '')
+
+    def mask(key):
+        return key[:8] + '****' + key[-4:] if len(key) > 12 else ('****' if key else '')
+
     return jsonify({
-        'siliconflow_api_key': masked,
-        'siliconflow_api_key_set': bool(key),
+        'siliconflow_api_key': mask(cfg.get('siliconflow_api_key', '')),
+        'siliconflow_api_key_set': bool(cfg.get('siliconflow_api_key')),
         'siliconflow_model': cfg.get('siliconflow_model', 'FunAudioLLM/SenseVoiceSmall'),
+        'openai_api_key': mask(cfg.get('openai_api_key', '')),
+        'openai_api_key_set': bool(cfg.get('openai_api_key')),
+        'openai_base_url': cfg.get('openai_base_url', 'https://api.openai.com/v1'),
+        'openai_model': cfg.get('openai_model', 'whisper-1'),
     })
 
 
@@ -280,13 +292,25 @@ def start_transcribe():
     if engine not in ENGINES:
         return jsonify({'error': '未知引擎'}), 400
 
-    # 如果是SiliconFlow引擎，检查API Key
+    # 如果是需要API Key的引擎，读取配置
     sf_api_key = ''
-    if engine == 'siliconflow':
+    sf_model = 'FunAudioLLM/SenseVoiceSmall'
+    oai_api_key = ''
+    oai_base_url = 'https://api.openai.com/v1'
+    oai_model = 'whisper-1'
+    if engine in ('siliconflow', 'openai'):
         cfg = load_config()
-        sf_api_key = cfg.get('siliconflow_api_key', '')
-        if not sf_api_key:
-            return jsonify({'error': 'SiliconFlow API Key 未配置，请先在设置页面填写'}), 400
+        if engine == 'siliconflow':
+            sf_api_key = cfg.get('siliconflow_api_key', '')
+            sf_model = cfg.get('siliconflow_model', 'FunAudioLLM/SenseVoiceSmall')
+            if not sf_api_key:
+                return jsonify({'error': '硅基流动 API Key 未配置，请先在设置页面填写'}), 400
+        elif engine == 'openai':
+            oai_api_key = cfg.get('openai_api_key', '')
+            oai_base_url = cfg.get('openai_base_url', 'https://api.openai.com/v1')
+            oai_model = cfg.get('openai_model', 'whisper-1')
+            if not oai_api_key:
+                return jsonify({'error': 'OpenAI API Key 未配置，请先在设置页面填写'}), 400
 
     task_id = str(uuid.uuid4())[:8]
     tasks[task_id] = {
@@ -313,7 +337,10 @@ def start_transcribe():
             ts = datetime.datetime.now().strftime('%H:%M:%S')
             task['logs'].append(f'[{ts}] 开始识别: {filename} ({"%.1f" % (len(audio_bytes)/1024/1024)}MB)')
 
-            segments = recognize_audio(audio_bytes, engine, filename, callback, api_key=sf_api_key)
+            segments = recognize_audio(audio_bytes, engine, filename, callback,
+                                       api_key=sf_api_key or oai_api_key,
+                                       base_url=oai_base_url,
+                                       model=sf_model if engine == 'siliconflow' else oai_model)
 
             task['segments'] = [seg.to_dict() for seg in segments]
             task['status'] = 'done'
