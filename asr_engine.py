@@ -18,6 +18,7 @@ import logging
 import io
 import tempfile
 import zlib
+from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any, Union
 
 import requests
@@ -54,8 +55,30 @@ def ms_to_srt_time(ms):
     return f"{h:02d}:{m:02d}:{s:02d},{milli:03d}"
 
 
-def audio_to_wav_bytes(audio_bytes: bytes) -> bytes:
-    """Convert any audio to WAV bytes using pydub."""
+def audio_to_wav_bytes(audio_bytes: bytes, filename: str = '') -> bytes:
+    """Convert any audio/video to WAV bytes using pydub/ffmpeg."""
+    # 视频格式：先用ffmpeg提取音频
+    video_exts = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.ts', '.m4v', '.wmv')
+    if filename.lower().endswith(video_exts):
+        try:
+            import subprocess
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=Path(filename).suffix, delete=False) as tmp_in:
+                tmp_in.write(audio_bytes)
+                tmp_in_path = tmp_in.name
+            tmp_out_path = tmp_in_path + '.wav'
+            subprocess.run(['ffmpeg', '-i', tmp_in_path, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', tmp_out_path, '-y'],
+                           capture_output=True, timeout=120)
+            with open(tmp_out_path, 'rb') as f:
+                wav_bytes = f.read()
+            os.unlink(tmp_in_path)
+            os.unlink(tmp_out_path)
+            return wav_bytes
+        except Exception as e:
+            logger.warning(f"Video to audio extraction failed: {e}")
+            # fall through to pydub
+
+    # 音频格式：用pydub转换
     try:
         audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
     except Exception:
@@ -85,7 +108,7 @@ class BcutASR:
     }
 
     def __init__(self, audio_bytes: bytes, filename: str = 'audio'):
-        self.file_binary = audio_to_wav_bytes(audio_bytes)
+        self.file_binary = audio_to_wav_bytes(audio_bytes, self.filename)
         self.filename = filename
         self.task_id: Optional[str] = None
         self._in_boss_key: Optional[str] = None
@@ -453,11 +476,16 @@ class OpenAICompatibleASR:
 
     def __init__(self, audio_bytes: bytes, filename: str = 'audio',
                  api_key: str = '', base_url: str = '', model: str = ''):
-        self.audio_bytes = audio_bytes
         self.filename = filename
         self.api_key = api_key
         self.base_url = base_url.rstrip('/')
         self.model = model
+        # 视频格式先提取音频
+        video_exts = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.ts', '.m4v', '.wmv')
+        if filename.lower().endswith(video_exts):
+            self.audio_bytes = audio_to_wav_bytes(audio_bytes, filename)
+        else:
+            self.audio_bytes = audio_bytes
 
     def recognize(self, callback=None) -> List[ASRSegment]:
         if not self.api_key:
