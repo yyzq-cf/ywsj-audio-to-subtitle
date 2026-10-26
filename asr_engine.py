@@ -80,6 +80,8 @@ class BcutASR:
     headers = {
         "User-Agent": "Bilibili/1.0.0 (https://www.bilibili.com)",
         "Content-Type": "application/json",
+        "Referer": "https://www.bilibili.com",
+        "Origin": "https://www.bilibili.com",
     }
 
     def __init__(self, audio_bytes: bytes, filename: str = 'audio'):
@@ -94,6 +96,18 @@ class BcutASR:
         self._clips: int = 0
         self._etags: List[str] = []
         self._download_url: Optional[str] = None
+        # B站WAF需要cookie，用session先访问首页获取buvid3
+        self.session = requests.Session()
+        self._init_cookies()
+
+    def _init_cookies(self):
+        """访问B站首页获取WAF cookie（buvid3），避免query时412。"""
+        try:
+            self.session.get("https://www.bilibili.com", headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+            }, timeout=10)
+        except Exception:
+            pass  # cookie获取失败不阻塞，query会自动重试
 
     def _upload(self):
         """请求上传凭证并上传音频文件。"""
@@ -109,7 +123,7 @@ class BcutASR:
             "ResourceFileType": "mp3",
             "model_id": model_id,
         })
-        resp = requests.post(API_REQ_UPLOAD, data=payload, headers=self.headers, timeout=15)
+        resp = self.session.post(API_REQ_UPLOAD, data=payload, headers=self.headers, timeout=15)
         resp.raise_for_status()
         resp = resp.json()
 
@@ -128,7 +142,7 @@ class BcutASR:
         for clip in range(self._clips):
             start = clip * self._per_size
             end = (clip + 1) * self._per_size
-            r = requests.put(
+            r = self.session.put(
                 self._upload_urls[clip],
                 data=self.file_binary[start:end],
                 headers=self.headers,
@@ -147,7 +161,7 @@ class BcutASR:
             "UploadId": self._upload_id,
             "model_id": model_id,
         })
-        resp = requests.post(API_COMMIT_UPLOAD, data=commit_data, headers=self.headers, timeout=15)
+        resp = self.session.post(API_COMMIT_UPLOAD, data=commit_data, headers=self.headers, timeout=15)
         resp.raise_for_status()
         resp = resp.json()
         if resp.get("code") != 0:
@@ -156,7 +170,7 @@ class BcutASR:
 
     def _create_task(self) -> str:
         """创建识别任务。"""
-        resp = requests.post(
+        resp = self.session.post(
             API_CREATE_TASK,
             json={"resource": self._download_url, "model_id": "8"},
             headers=self.headers,
@@ -170,15 +184,19 @@ class BcutASR:
         return self.task_id or ""
 
     def _query_result(self, task_id: Optional[str] = None) -> dict:
-        """轮询识别结果。"""
+        """轮询识别结果。B站WAF可能返回412，自动重试。"""
         tid = task_id or self.task_id
         for _ in range(300):
-            resp = requests.get(
+            resp = self.session.get(
                 API_QUERY_RESULT,
                 params={"model_id": 7, "task_id": tid},
                 headers=self.headers,
                 timeout=15,
             )
+            # B站WAF可能返回412 Precondition Failed，等几秒重试
+            if resp.status_code == 412:
+                time.sleep(3)
+                continue
             resp.raise_for_status()
             resp = resp.json()
             if resp.get("code") != 0:
