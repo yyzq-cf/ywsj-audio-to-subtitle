@@ -556,7 +556,11 @@
 
     // ===== 引擎下拉框动态填充 =====
     function loadEngineOptions() {
-        fetch('/api/engines').then(function(r){return r.json();}).then(function(d){
+        // 同时加载接口列表(用于显示配置状态)和引擎列表
+        fetch('/api/endpoints').then(function(r){return r.json();}).then(function(eps){
+            epList = eps;
+            return fetch('/api/engines').then(function(r){return r.json();});
+        }).then(function(d){
             var sel = document.getElementById('engine');
             var cur = sel.value;
             sel.innerHTML = '';
@@ -566,7 +570,6 @@
                 opt.textContent = d[key].label;
                 sel.appendChild(opt);
             });
-            // 尽量保持之前的选择
             if (cur && d[cur]) sel.value = cur;
             onEngineChange();
         });
@@ -574,20 +577,24 @@
     function onEngineChange() {
         var sel = document.getElementById('engine');
         var key = sel.value;
-        fetch('/api/engines').then(function(r){return r.json();}).then(function(d){
-            var info = d[key] || {};
-            document.getElementById('engineLangText').textContent = info.languages ? ('支持语言: ' + info.languages) : '';
+        // 语言提示从后端engines数据获取
+        var langText = '';
+        if (key.startsWith('ep:')) {
+            var epId = key.substring(3);
+            var ep = epList.find(function(e){return e.id === epId;});
             var hint = document.getElementById('epKeyHint');
-            if (key.startsWith('ep:')) {
-                hint.style.display = 'block';
-                var ep = epList.find(function(e){return 'ep:'+e.id === key;});
-                var el = document.getElementById('epKeyStatus');
-                if (ep && ep.api_key_set) { el.textContent = '✅ 已配置'; el.style.color = 'var(--success)'; }
+            hint.style.display = 'block';
+            var el = document.getElementById('epKeyStatus');
+            if (ep) {
+                langText = ({siliconflow:'中/英/日/韩/粤等', openai:'中/英/日/韩等(Whisper)', groq:'多语言(Whisper)'})[ep.type] || '多语言';
+                if (ep.api_key_set) { el.textContent = '✅ 已配置'; el.style.color = 'var(--success)'; }
                 else { el.textContent = '❌ 未配置'; el.style.color = 'var(--muted)'; }
-            } else {
-                hint.style.display = 'none';
             }
-        });
+        } else {
+            document.getElementById('epKeyHint').style.display = 'none';
+            langText = ({bcut:'中文、英文', jianying:'中文'})[key] || '';
+        }
+        document.getElementById('engineLangText').textContent = langText ? ('支持语言: ' + langText) : '';
     }
     window.onEngineChange = onEngineChange;
 
