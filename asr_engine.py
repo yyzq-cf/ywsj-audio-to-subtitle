@@ -446,24 +446,140 @@ class JianYingASR:
         return segments
 
 
+# ===== SiliconFlow Whisper ASR =====
+
+class SiliconFlowASR:
+    """SiliconFlow ASR - OpenAI-compatible API, supports multi-language."""
+
+    def __init__(self, audio_bytes: bytes, filename: str = 'audio', api_key: str = '', model: str = 'FunAudioLLM/SenseVoiceSmall'):
+        self.audio_bytes = audio_bytes
+        self.filename = filename
+        self.api_key = api_key
+        self.model = model
+
+    def recognize(self, callback=None) -> List[ASRSegment]:
+        if not self.api_key:
+            raise ValueError("SiliconFlow API Key 未配置，请在设置页面填写")
+
+        if callback: callback(15, '上传音频到硅基流动...')
+        url = "https://api.siliconflow.cn/v1/audio/transcriptions"
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+
+        # 先获取音频时长来估算分段
+        try:
+            from pydub import AudioSegment
+            import io as _io
+            audio = AudioSegment.from_file(_io.BytesIO(self.audio_bytes))
+            duration = len(audio) / 1000.0  # seconds
+        except Exception:
+            duration = 60  # 默认假设60秒
+
+        if callback: callback(30, f'识别中（音频 {duration:.1f}s）...')
+
+        # 调用API（verbose_json获取segments）
+        resp = requests.post(
+            url,
+            headers=headers,
+            files={"file": (self.filename or "audio.mp3", self.audio_bytes, "audio/mp3")},
+            data={
+                "model": self.model,
+                "response_format": "verbose_json",
+                "timestamp_granularities[]": "segment",
+            },
+            timeout=300
+        )
+
+        if callback: callback(80, '解析识别结果...')
+
+        if resp.status_code != 200:
+            error_msg = resp.text[:300]
+            try:
+                error_data = resp.json()
+                error_msg = error_data.get('message', error_msg)
+            except Exception:
+                pass
+            raise Exception(f"SiliconFlow API错误 (HTTP {resp.status_code}): {error_msg}")
+
+        data = resp.json()
+
+        if callback: callback(95, '生成字幕...')
+
+        return self._parse(data, duration)
+
+    def _parse(self, data: dict, duration: float) -> List[ASRSegment]:
+        segments = []
+
+        # 如果API返回了segments（带时间戳），直接用
+        api_segments = data.get("segments", [])
+        if api_segments:
+            for s in api_segments:
+                text = s.get("text", "").strip()
+                start = int(float(s.get("start", 0)) * 1000)
+                end = int(float(s.get("end", 0)) * 1000)
+                if text:
+                    segments.append(ASRSegment(text, start, end))
+
+        # 如果没有segments，只有纯文本，按标点符号分段，均匀分配时间
+        if not segments:
+            text = data.get("text", "").strip()
+            if text:
+                segments = self._split_text_to_segments(text, duration)
+
+        return segments
+
+    def _split_text_to_segments(self, text: str, duration: float) -> List[ASRSegment]:
+        """纯文本无时间戳时，按标点符号分段并均匀分配时间。"""
+        import re
+        # 按句号、问号、感叹号、换行分段
+        parts = [p.strip() for p in re.split(r'[。！？!?\n]+', text) if p.strip()]
+
+        # 如果段太少，按逗号再分
+        if len(parts) <= 1:
+            parts = [p.strip() for p in re.split(r'[，,。！？!?\n]+', text) if p.strip()]
+
+        if not parts:
+            parts = [text]
+
+        total_ms = int(duration * 1000)
+        seg_ms = total_ms // len(parts)
+
+        segments = []
+        for i, part in enumerate(parts):
+            start = i * seg_ms
+            end = (i + 1) * seg_ms if i < len(parts) - 1 else total_ms
+            segments.append(ASRSegment(part, start, end))
+
+        return segments
+
+
 # ===== Engine registry =====
 
 ENGINES = {
     'bcut': {
-        'label': '必剪 (B站) - 免费·推荐',
+        'label': '必剪 (B站) - 免费·仅中英文',
         'needs_key': False,
+        'languages': '中文、英文',
+    },
+    'siliconflow': {
+        'label': '硅基流动 ASR - 多语言·需API Key',
+        'needs_key': True,
+        'languages': '中/英/日/韩/粤等',
     },
     'jianying': {
         'label': '剪映 (字节) - 免费·备用',
         'needs_key': False,
+        'languages': '中文',
     },
 }
 
 
 def recognize_audio(audio_bytes: bytes, engine: str, filename: str = 'audio',
-                    callback=None) -> List[ASRSegment]:
+                    callback=None, api_key: str = '') -> List[ASRSegment]:
     if engine == 'bcut':
         asr = BcutASR(audio_bytes, filename)
+        return asr.recognize(callback)
+    elif engine == 'siliconflow':
+        asr = SiliconFlowASR(audio_bytes, filename, api_key=api_key)
         return asr.recognize(callback)
     elif engine == 'jianying':
         asr = JianYingASR(audio_bytes, filename)

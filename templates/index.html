@@ -8,7 +8,7 @@
         :root {
             --bg: #0f1117; --card: #1a1d27; --border: #2a2d3a;
             --text: #e4e4e7; --muted: #71717a; --accent: #3b82f6;
-            --accent-hover: #2563eb; --success: #22c55e; --error: #ef4444;
+            --accent-hover: #2563eb; --success: #22c55e; --error: #ef4444; --warning: #f59e0b;
             --edited: #f59e0b;
         }
         [data-theme="light"] {
@@ -132,12 +132,20 @@
         <div class="card-title">⚙️ 第二步：选择识别引擎</div>
         <div class="form-row">
             <div class="form-group">
-                <label>语音识别引擎（均免费，无需配置）</label>
-                <select id="engine">
+                <label>语音识别引擎</label>
+                <select id="engine" onchange="onEngineChange()">
                     {% for key, info in engines.items() %}
                     <option value="{{ key }}">{{ info.label }}</option>
                     {% endfor %}
                 </select>
+                <div id="engineHint" style="margin-top:8px; font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px;">
+                    <span>🌐</span><span id="engineLangText"></span>
+                </div>
+                <div id="sfKeyHint" style="margin-top:8px; font-size:12px; display:none;">
+                    <span style="color:var(--warning);">⚠️ 需要 API Key</span>
+                    <a href="#" onclick="showSfConfig(); return false;" style="color:var(--accent); margin-left:8px;">点击配置</a>
+                    <span id="sfKeyStatus" style="margin-left:8px; color:var(--muted);"></span>
+                </div>
             </div>
         </div>
         <div class="btn-row">
@@ -148,6 +156,7 @@
     <div class="progress" id="progress">
         <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
         <div class="progress-text" id="progressText">识别中...</div>
+        <div class="progress-percent" id="progressPercent" style="position:absolute; right:0; top:-22px; font-size:13px; font-weight:600; color:var(--accent);">0%</div>
         <div class="log-box" id="logBox"></div>
     </div>
 
@@ -195,6 +204,26 @@
         <div class="btn-row" style="margin-top:0;"><button class="btn btn-secondary" onclick="closePwdModal()">取消</button><button class="btn" onclick="submitChangePassword()">确认修改</button></div>
     </div>
 </div>
+
+<div class="modal-overlay" id="sfModal">
+    <div class="modal" style="width:440px;">
+        <h3>🔑 硅基流动 ASR 配置</h3>
+        <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">配置硅基流动 API Key 后可使用多语言语音识别（中/英/日/韩/粤等）。<br>申请地址：<a href="https://cloud.siliconflow.cn" target="_blank" style="color:var(--accent);">cloud.siliconflow.cn</a></p>
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">API Key</label>
+            <input type="text" id="sfApiKey" placeholder="sk-xxxxxxxx...">
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">模型（默认 SenseVoiceSmall）</label>
+            <select id="sfModel" style="width:100%;">
+                <option value="FunAudioLLM/SenseVoiceSmall">SenseVoiceSmall（推荐·多语言·快）</option>
+                <option value="XingChenAGI/XingChenASR-V3.2-Ultra">XingChenASR-V3.2-Ultra（中文·高精度）</option>
+                <option value="XingChenAGI/XingChenASR-V3.2">XingChenASR-V3.2（中文·标准）</option>
+            </select>
+        </div>
+        <div class="btn-row" style="margin-top:0;"><button class="btn btn-secondary" onclick="closeSfModal()">取消</button><button class="btn" onclick="saveSfConfig()">保存配置</button></div>
+    </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -207,7 +236,11 @@
 
     function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
     function showToast(msg, type) { var t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast show ' + (type||''); setTimeout(function(){t.classList.remove('show');}, 3000); }
-    function showProgress(msg) { document.getElementById('progress').classList.add('show'); document.getElementById('progressText').textContent = msg; }
+    function showProgress(msg) {
+        document.getElementById('progress').classList.add('show');
+        document.getElementById('progressText').textContent = msg;
+        document.getElementById('progressPercent').textContent = '0%';
+    }
     function hideProgress() { document.getElementById('progress').classList.remove('show'); }
     function formatSize(b) { if(b<1024) return b+' B'; if(b<1048576) return (b/1024).toFixed(1)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
 
@@ -246,6 +279,7 @@
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 document.getElementById('progressFill').style.width = data.progress + '%';
+                document.getElementById('progressPercent').textContent = data.progress + '%';
                 document.getElementById('progressText').textContent = data.message || '';
 
                 if (data.logs && data.logs.length > 0) {
@@ -273,6 +307,68 @@
             })
             .catch(function() { pollTimer = setTimeout(pollProgress, 2000); });
     }
+
+    // ===== 引擎切换 + SiliconFlow配置 =====
+    var engineData = {};
+    function onEngineChange() {
+        var sel = document.getElementById('engine');
+        var key = sel.value;
+        var info = engineData[key] || {};
+        // 语言提示
+        var langText = info.languages || '';
+        document.getElementById('engineLangText').textContent = langText ? ('支持语言: ' + langText) : '';
+        // SF Key提示
+        var sfHint = document.getElementById('sfKeyHint');
+        if (info.needs_key) {
+            sfHint.style.display = 'block';
+            loadSfStatus();
+        } else {
+            sfHint.style.display = 'none';
+        }
+    }
+    function loadSfStatus() {
+        fetch('/api/config').then(function(r){return r.json();}).then(function(d){
+            var el = document.getElementById('sfKeyStatus');
+            if (d.siliconflow_api_key_set) {
+                el.textContent = '✅ 已配置 (' + d.siliconflow_api_key + ')';
+                el.style.color = 'var(--success)';
+            } else {
+                el.textContent = '❌ 未配置';
+                el.style.color = 'var(--muted)';
+            }
+        }).catch(function(){});
+    }
+    function showSfConfig() {
+        fetch('/api/config').then(function(r){return r.json();}).then(function(d){
+            document.getElementById('sfModel').value = d.siliconflow_model || 'FunAudioLLM/SenseVoiceSmall';
+            document.getElementById('sfApiKey').value = '';
+            document.getElementById('sfApiKey').placeholder = d.siliconflow_api_key_set ? ('当前: ' + d.siliconflow_api_key) : 'sk-xxxxxxxx...';
+            document.getElementById('sfModal').classList.add('show');
+        });
+    }
+    window.showSfConfig = showSfConfig;
+    function closeSfModal() { document.getElementById('sfModal').classList.remove('show'); }
+    window.closeSfModal = closeSfModal;
+    function saveSfConfig() {
+        var key = document.getElementById('sfApiKey').value.trim();
+        var model = document.getElementById('sfModel').value;
+        var body = { siliconflow_model: model };
+        if (key) body.siliconflow_api_key = key;
+        fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+            .then(function(r){return r.json();})
+            .then(function(d){
+                if (d.ok) { showToast('配置已保存', 'success'); closeSfModal(); loadSfStatus(); }
+                else { showToast('保存失败', 'error'); }
+            })
+            .catch(function(e){ showToast('保存失败: ' + e.message, 'error'); });
+    }
+    window.saveSfConfig = saveSfConfig;
+
+    // 页面加载时获取引擎信息
+    fetch('/api/engines').then(function(r){return r.json();}).then(function(d){
+        engineData = d;
+        onEngineChange();
+    });
 
     function msToTime(ms) {
         var h = Math.floor(ms/3600000), m = Math.floor((ms%3600000)/60000), s = Math.floor((ms%60000)/1000);

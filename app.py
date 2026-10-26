@@ -222,7 +222,50 @@ def index():
 @app.route('/api/engines')
 @login_required
 def engines():
-    return jsonify({k: {'label': v['label'], 'needs_key': v.get('needs_key', False)} for k, v in ENGINES.items()})
+    return jsonify({k: {'label': v['label'], 'needs_key': v.get('needs_key', False), 'languages': v.get('languages', '')} for k, v in ENGINES.items()})
+
+
+# ===== SiliconFlow API Key storage =====
+def _get_config_path():
+    return os.path.join(DATA_DIR, 'config.json')
+
+def load_config():
+    """读取配置（SiliconFlow API Key等）"""
+    import json as _json
+    try:
+        with open(_get_config_path(), 'r') as f:
+            return _json.load(f)
+    except (OSError, IOError, ValueError):
+        return {}
+
+def save_config(cfg):
+    """保存配置"""
+    import json as _json
+    with open(_get_config_path(), 'w') as f:
+        _json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+@app.route('/api/config', methods=['GET', 'POST'])
+@login_required
+def config_api():
+    if request.method == 'POST':
+        data = request.json or {}
+        cfg = load_config()
+        if 'siliconflow_api_key' in data:
+            cfg['siliconflow_api_key'] = data['siliconflow_api_key'].strip()
+        if 'siliconflow_model' in data:
+            cfg['siliconflow_model'] = data['siliconflow_model'].strip() or 'FunAudioLLM/SenseVoiceSmall'
+        save_config(cfg)
+        return jsonify({'ok': True})
+    # GET: 返回配置（API key脱敏）
+    cfg = load_config()
+    key = cfg.get('siliconflow_api_key', '')
+    masked = key[:8] + '****' + key[-4:] if len(key) > 12 else ('****' if key else '')
+    return jsonify({
+        'siliconflow_api_key': masked,
+        'siliconflow_api_key_set': bool(key),
+        'siliconflow_model': cfg.get('siliconflow_model', 'FunAudioLLM/SenseVoiceSmall'),
+    })
+
 
 @app.route('/api/transcribe', methods=['POST'])
 @login_required
@@ -236,6 +279,14 @@ def start_transcribe():
 
     if engine not in ENGINES:
         return jsonify({'error': '未知引擎'}), 400
+
+    # 如果是SiliconFlow引擎，检查API Key
+    sf_api_key = ''
+    if engine == 'siliconflow':
+        cfg = load_config()
+        sf_api_key = cfg.get('siliconflow_api_key', '')
+        if not sf_api_key:
+            return jsonify({'error': 'SiliconFlow API Key 未配置，请先在设置页面填写'}), 400
 
     task_id = str(uuid.uuid4())[:8]
     tasks[task_id] = {
@@ -262,7 +313,7 @@ def start_transcribe():
             ts = datetime.datetime.now().strftime('%H:%M:%S')
             task['logs'].append(f'[{ts}] 开始识别: {filename} ({"%.1f" % (len(audio_bytes)/1024/1024)}MB)')
 
-            segments = recognize_audio(audio_bytes, engine, filename, callback)
+            segments = recognize_audio(audio_bytes, engine, filename, callback, api_key=sf_api_key)
 
             task['segments'] = [seg.to_dict() for seg in segments]
             task['status'] = 'done'
