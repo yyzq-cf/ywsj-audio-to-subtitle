@@ -11,6 +11,7 @@ on:
       - 'templates/**'
       - 'requirements.txt'
       - 'Dockerfile'
+      - 'README.md'
       - '.github/workflows/docker-publish.yml'
 
 jobs:
