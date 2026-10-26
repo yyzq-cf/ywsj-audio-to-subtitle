@@ -7,6 +7,7 @@ import threading
 import logging
 import time
 import sqlite3
+import requests
 from functools import wraps
 from urllib.parse import quote
 from flask import Flask, request, jsonify, render_template, Response, session, redirect, url_for
@@ -277,6 +278,78 @@ def config_api():
         'openai_base_url': cfg.get('openai_base_url', 'https://api.openai.com/v1'),
         'openai_model': cfg.get('openai_model', 'whisper-1'),
     })
+
+
+@app.route('/api/test-api', methods=['POST'])
+@login_required
+def test_api():
+    """测试API连接是否可用。用一段极短音频发送识别请求验证。"""
+    data = request.json or {}
+    engine = data.get('engine', '')
+    api_key = data.get('api_key', '')
+    base_url = data.get('base_url', '')
+    model = data.get('model', '')
+
+    # 如果没传Key，尝试用已保存的
+    cfg = load_config()
+    if engine == 'siliconflow':
+        if not api_key:
+            api_key = cfg.get('siliconflow_api_key', '')
+        if not api_key:
+            return jsonify({'ok': False, 'error': 'API Key 未填写'}), 400
+        if not model:
+            model = cfg.get('siliconflow_model', 'FunAudioLLM/SenseVoiceSmall')
+        test_base_url = 'https://api.siliconflow.cn/v1'
+    elif engine == 'openai':
+        if not api_key:
+            api_key = cfg.get('openai_api_key', '')
+        if not api_key:
+            return jsonify({'ok': False, 'error': 'API Key 未填写'}), 400
+        if not base_url:
+            base_url = cfg.get('openai_base_url', 'https://api.openai.com/v1')
+        if not model:
+            model = cfg.get('openai_model', 'whisper-1')
+        test_base_url = base_url.rstrip('/')
+    else:
+        return jsonify({'ok': False, 'error': '不支持的引擎'}), 400
+
+    # 生成一段1秒静音音频用于测试(不消耗实际识别额度,只验证连通性)
+    import io as _io
+    try:
+        from pydub import AudioSegment
+        silent = AudioSegment.silent(duration=500)  # 0.5秒静音
+        buf = _io.BytesIO()
+        silent.export(buf, format='mp3')
+        test_audio = buf.getvalue()
+    except Exception:
+        return jsonify({'ok': False, 'error': '音频生成失败(ffmpeg未安装?)'}), 500
+
+    try:
+        url = f"{test_base_url}/audio/transcriptions"
+        resp = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            files={"file": ("test.mp3", test_audio, "audio/mp3")},
+            data={"model": model, "response_format": "verbose_json"},
+            timeout=30
+        )
+        if resp.status_code == 200:
+            d = resp.json()
+            text = d.get('text', '')
+            return jsonify({'ok': True, 'message': f'模型 {model} 可用' + (f', 返回: {text[:30]}' if text else '')})
+        else:
+            try:
+                err = resp.json()
+                msg = err.get('message', err.get('error', {}).get('message', resp.text[:200]))
+            except Exception:
+                msg = resp.text[:200]
+            return jsonify({'ok': False, 'error': f'HTTP {resp.status_code}: {msg}'})
+    except requests.exceptions.Timeout:
+        return jsonify({'ok': False, 'error': '请求超时(30s)'})
+    except requests.exceptions.ConnectionError as e:
+        return jsonify({'ok': False, 'error': f'连接失败: {str(e)[:100]}'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)[:200]})
 
 
 @app.route('/api/transcribe', methods=['POST'])

@@ -228,7 +228,10 @@
                             <option value="XingChenAGI/XingChenASR-V3.2">XingChenASR-V3.2（中文·标准）</option>
                         </select>
                     </div>
-                    <button class="btn" onclick="saveSfConfig()" style="width:100%;">💾 保存硅基流动配置</button>
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn" onclick="saveSfConfig()" style="flex:1;">💾 保存</button>
+                        <button class="btn btn-secondary" onclick="testSfApi()" id="testSfBtn" style="flex:1;">🔌 测试连接</button>
+                    </div>
                 </div>
                 <!-- OpenAI 兼容 -->
                 <div>
@@ -251,7 +254,10 @@
                         • OpenAI官方: <code>https://api.openai.com/v1</code> + <code>whisper-1</code><br>
                         • Groq(免费): <code>https://api.groq.com/openai/v1</code> + <code>whisper-large-v3</code>
                     </div>
-                    <button class="btn" onclick="saveOaiConfig()" style="width:100%;">💾 保存OpenAI配置</button>
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn" onclick="saveOaiConfig()" style="flex:1;">💾 保存</button>
+                        <button class="btn btn-secondary" onclick="testOaiApi()" id="testOaiBtn" style="flex:1;">🔌 测试连接</button>
+                    </div>
                 </div>
             </div>
             <!-- 账户安全 Tab -->
@@ -465,6 +471,54 @@
             .catch(function(e){ showToast('保存失败: ' + e.message, 'error'); });
     }
     window.saveOaiConfig = saveOaiConfig;
+
+    // ===== 测试连接 =====
+    function testSfApi() {
+        var key = document.getElementById('sfApiKey').value.trim();
+        var model = document.getElementById('sfModel').value;
+        var body = { engine: 'siliconflow', model: model };
+        if (key) body.api_key = key;
+        testApi(body, 'testSfBtn');
+    }
+    window.testSfApi = testSfApi;
+    function testOaiApi() {
+        var key = document.getElementById('oaiApiKey').value.trim();
+        var baseUrl = document.getElementById('oaiBaseUrl').value.trim();
+        var model = document.getElementById('oaiModel').value.trim();
+        var body = { engine: 'openai', base_url: baseUrl, model: model };
+        if (key) body.api_key = key;
+        testApi(body, 'testOaiBtn');
+    }
+    window.testOaiApi = testOaiApi;
+    function testApi(body, btnId) {
+        var btn = document.getElementById(btnId);
+        var origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '⏳ 测试中...';
+        fetch('/api/test-api', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+            .then(function(r){return r.json();})
+            .then(function(d){
+                btn.disabled = false;
+                btn.textContent = origText;
+                if (d.ok) {
+                    btn.style.background = 'var(--success)';
+                    btn.textContent = '✅ 连接成功';
+                    showToast('连接成功! ' + (d.message||''), 'success');
+                    setTimeout(function(){ btn.textContent = origText; btn.style.background = ''; }, 3000);
+                } else {
+                    btn.style.background = 'var(--error)';
+                    btn.textContent = '❌ 失败';
+                    showToast(d.error || '连接失败', 'error');
+                    setTimeout(function(){ btn.textContent = origText; btn.style.background = ''; }, 3000);
+                }
+            })
+            .catch(function(e){
+                btn.disabled = false;
+                btn.textContent = origText;
+                showToast('测试失败: ' + e.message, 'error');
+            });
+    }
+    window.testApi = testApi;
 
     // 页面加载时获取引擎信息
     fetch('/api/engines').then(function(r){return r.json();}).then(function(d){
