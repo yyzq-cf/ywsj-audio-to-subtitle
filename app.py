@@ -8,6 +8,9 @@ import logging
 import time
 import sqlite3
 import requests
+import pyotp
+import qrcode
+import base64
 from functools import wraps
 from urllib.parse import quote
 from flask import Flask, request, jsonify, render_template, Response, session, redirect, url_for
@@ -80,7 +83,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS auth (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             username TEXT NOT NULL,
-            password TEXT NOT NULL
+            password TEXT NOT NULL,
+            totp_secret TEXT
         );
         CREATE TABLE IF NOT EXISTS history (
             id TEXT PRIMARY KEY,
@@ -90,6 +94,10 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now', 'localtime'))
         );
     """)
+    # Migration: 如果auth表没有totp_secret列，加上
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(auth)").fetchall()]
+    if 'totp_secret' not in cols:
+        conn.execute("ALTER TABLE auth ADD COLUMN totp_secret TEXT")
     conn.commit()
     conn.close()
 
@@ -98,10 +106,10 @@ init_db()
 # ===== Auth =====
 def load_auth():
     conn = get_db()
-    row = conn.execute("SELECT username, password FROM auth WHERE id = 1").fetchone()
+    row = conn.execute("SELECT username, password, totp_secret FROM auth WHERE id = 1").fetchone()
     conn.close()
     if row:
-        return {'username': row['username'], 'password': row['password']}
+        return {'username': row['username'], 'password': row['password'], 'totp_secret': row['totp_secret'] if 'totp_secret' in row.keys() else None}
     return None
 
 def save_auth(username, password):
@@ -155,12 +163,64 @@ def setup():
             return redirect(url_for('index'))
     return render_template('setup.html', error=error, version=APP_VERSION)
 
+# ===== 2FA (TOTP) =====
+_2fa_pending = {}  # {token: {username, expires, attempts}}
+_2fa_lock = threading.Lock()
+_2FA_EXPIRY = 180  # 3分钟
+_2FA_MAX_ATTEMPTS = 5
+
+def get_totp_secret():
+    """获取当前用户的TOTP secret"""
+    auth = load_auth()
+    return auth.get('totp_secret') if auth else None
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if not is_auth_enabled():
         return redirect(url_for('setup'))
     error = None
     if request.method == 'POST':
+        # 判断是2FA验证阶段还是密码阶段
+        pending_token = request.form.get('pending_token', '')
+        if pending_token:
+            # 2FA验证阶段
+            code = request.form.get('code', '').strip()
+            with _2fa_lock:
+                now = time.time()
+                for k in list(_2fa_pending):
+                    if _2fa_pending[k]['expires'] < now:
+                        del _2fa_pending[k]
+                pending = _2fa_pending.get(pending_token)
+
+            if not pending:
+                error = '验证已超时，请重新登录'
+            else:
+                attempts = pending.get('attempts', 0)
+                if attempts >= _2FA_MAX_ATTEMPTS:
+                    with _2fa_lock:
+                        _2fa_pending.pop(pending_token, None)
+                    error = '验证码错误次数过多，请重新登录'
+                else:
+                    secret = get_totp_secret()
+                    totp = pyotp.TOTP(secret) if secret else None
+                    if totp and totp.verify(code, valid_window=1):
+                        # 2FA验证成功
+                        with _2fa_lock:
+                            _2fa_pending.pop(pending_token, None)
+                        session.clear()
+                        session['logged_in'] = True
+                        session.permanent = True
+                        return redirect(url_for('index'))
+                    else:
+                        with _2fa_lock:
+                            pending['attempts'] = attempts + 1
+                            _2fa_pending[pending_token] = pending
+                        remaining = _2FA_MAX_ATTEMPTS - pending['attempts']
+                        error = f'验证码错误，剩余尝试次数 {remaining} 次'
+            return render_template('login.html', error=error, version=APP_VERSION,
+                                   pending_token=pending_token, twofa_stage=True)
+
+        # 密码阶段
         ip = request.remote_addr or '0.0.0.0'
         allowed, wait = check_login_allowed(ip)
         if not allowed:
@@ -171,17 +231,94 @@ def login():
             auth = load_auth()
             if auth and username == auth['username'] and check_password_hash(auth['password'], password):
                 clear_failed_login(ip)
-                session.clear()
-                session['logged_in'] = True
-                session.permanent = True
-                return redirect(url_for('index'))
+                # 检查是否启用了2FA
+                secret = auth.get('totp_secret')
+                if secret:
+                    # 需要2FA验证
+                    pending_token = secrets.token_hex(32)
+                    with _2fa_lock:
+                        now = time.time()
+                        for k in list(_2fa_pending):
+                            if _2fa_pending[k]['expires'] < now:
+                                del _2fa_pending[k]
+                        _2fa_pending[pending_token] = {
+                            'username': username,
+                            'expires': now + _2FA_EXPIRY,
+                            'attempts': 0,
+                        }
+                    return render_template('login.html', error=None, version=APP_VERSION,
+                                           pending_token=pending_token, twofa_stage=True)
+                else:
+                    # 无需2FA，直接登录
+                    session.clear()
+                    session['logged_in'] = True
+                    session.permanent = True
+                    return redirect(url_for('index'))
             record_failed_login(ip)
             remaining = 5 - login_attempts.get(ip, {}).get('count', 0)
             if remaining > 0:
                 error = f'用户名或密码错误，剩余尝试次数 {remaining} 次'
             else:
                 error = '登录失败次数过多，已锁定 15 分钟'
-    return render_template('login.html', error=error, version=APP_VERSION)
+    return render_template('login.html', error=error, version=APP_VERSION, twofa_stage=False)
+
+
+# ===== 2FA管理API =====
+@app.route('/api/2fa/status')
+@login_required
+def twofa_status():
+    return jsonify({'enabled': bool(get_totp_secret())})
+
+@app.route('/api/2fa/setup', methods=['POST'])
+@login_required
+def twofa_setup():
+    """生成TOTP secret和二维码"""
+    secret = pyotp.random_base32()
+    totp = pyotp.TOTP(secret)
+    uri = totp.provisioning_uri(name=load_auth()['username'], issuer_name="音频转字幕")
+    # 本地生成QR码
+    qr = qrcode.QRCode(version=1, box_size=8, border=2,
+                       error_correction=qrcode.constants.ERROR_CORRECT_M)
+    qr.add_data(uri)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    qr_data_uri = 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode()
+    session['_pending_totp_secret'] = secret
+    return jsonify({'secret': secret, 'qr_data_uri': qr_data_uri})
+
+@app.route('/api/2fa/confirm', methods=['POST'])
+@login_required
+def twofa_confirm():
+    """验证TOTP码并保存secret到数据库"""
+    code = (request.json or {}).get('code', '').strip()
+    secret = session.get('_pending_totp_secret')
+    if not secret or not code:
+        return jsonify({'ok': False, 'error': '请先获取二维码并输入验证码'}), 400
+    totp = pyotp.TOTP(secret)
+    if not totp.verify(code, valid_window=1):
+        return jsonify({'ok': False, 'error': '验证码错误'}), 401
+    conn = get_db()
+    conn.execute("UPDATE auth SET totp_secret=? WHERE id=1", (secret,))
+    conn.commit()
+    conn.close()
+    session.pop('_pending_totp_secret', None)
+    return jsonify({'ok': True})
+
+@app.route('/api/2fa/disable', methods=['POST'])
+@login_required
+def twofa_disable():
+    """关闭2FA，需要验证当前密码"""
+    password = (request.json or {}).get('password', '')
+    auth = load_auth()
+    if not auth or not check_password_hash(auth['password'], password):
+        return jsonify({'ok': False, 'error': '密码错误'}), 403
+    conn = get_db()
+    conn.execute("UPDATE auth SET totp_secret=NULL WHERE id=1")
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/logout')
 def logout():

@@ -66,6 +66,29 @@
             </a>
     </div>
     <h1>🎬 音频转字幕</h1>
+
+    {% if twofa_stage %}
+    <!-- 2FA验证码阶段 -->
+    <p class="subtitle">🔐 请输入两步验证码</p>
+    {% if error %}
+    <p class="error-msg">{{ error }}</p>
+    {% endif %}
+    <form method="POST" action="/login">
+        <input type="hidden" name="pending_token" value="{{ pending_token }}">
+        <div class="form-group">
+            <label>6位验证码（Google/Authenticator）</label>
+            <input type="text" name="code" maxlength="6" autofocus required
+                   style="text-align:center; letter-spacing:6px; font-size:20px; padding:14px 14px;"
+                   autocomplete="one-time-code" placeholder="000000">
+        </div>
+        <button type="submit" class="btn">验证</button>
+    </form>
+    <div class="footer">
+        <a href="/login" style="color:var(--muted); text-decoration:none;">← 返回重新登录</a>
+    </div>
+
+    {% else %}
+    <!-- 密码登录阶段 -->
     <p class="subtitle">请登录后使用</p>
     {% if error %}
     <p class="error-msg">{{ error }}</p>
@@ -82,8 +105,9 @@
         <button type="submit" class="btn">登录</button>
     </form>
     <div class="footer">
-        <p>ywsj-sub-translator · <a href="https://github.com/yyzq-cf/ywsj-audio-to-subtitle" target="_blank">GitHub</a></p>
+        <p>ywsj-audio-to-subtitle · <a href="https://github.com/yyzq-cf/ywsj-audio-to-subtitle" target="_blank">GitHub</a></p>
     </div>
+    {% endif %}
 </div>
 <script>
 function toggleTheme() {

@@ -254,6 +254,16 @@
             </div>
             <!-- 账户安全 Tab -->
             <div class="tab-content" id="tabAccount" style="display:none;">
+                <!-- 2FA管理 -->
+                <div style="margin-bottom:24px; padding-bottom:20px; border-bottom:1px solid var(--border);">
+                    <h4 style="margin:0 0 4px; font-size:15px;">🛡️ 两步验证 (2FA)</h4>
+                    <p style="font-size:12px; color:var(--muted); margin:0 0 14px;">使用 Google Authenticator / 1Password 等APP扫码，登录时需要额外输入验证码。</p>
+                    <div id="twofaArea">
+                        <p style="color:var(--muted); font-size:13px;" id="twofaStatusText">检测中...</p>
+                    </div>
+                </div>
+                <!-- 修改密码 -->
+                <h4 style="margin:0 0 14px; font-size:15px;">🔑 修改密码</h4>
                 <div class="form-group" style="margin-bottom:12px;">
                     <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">旧密码</label>
                     <input type="password" id="oldPassword" placeholder="输入当前密码">
@@ -591,12 +601,65 @@
         if (newPwd !== confirmPwd) { showToast('两次密码不一致', 'error'); return; }
         fetch('/api/auth/change-password', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ old_password: oldPwd, new_password: newPwd }) })
             .then(function(r){return r.json();}).then(function(data){
-                if (data.ok) { showToast('密码已修改', 'success'); closeSettings(); }
+                if (data.ok) { showToast('密码已修改', 'success'); document.getElementById('oldPassword').value=''; document.getElementById('newPassword').value=''; document.getElementById('confirmPassword').value=''; }
                 else { showToast(data.error || '修改失败', 'error'); }
             });
     };
 
-    // ===== 引擎下拉框动态填充 =====
+    // ===== 2FA管理 =====
+    function load2faStatus() {
+        fetch('/api/2fa/status').then(function(r){return r.json();}).then(function(d){
+            var area = document.getElementById('twofaArea');
+            if (d.enabled) {
+                area.innerHTML = '<p style="color:var(--success); font-size:14px; margin-bottom:12px;">✅ 已启用两步验证</p>' +
+                    '<div class="form-group" style="margin-bottom:12px;"><label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">输入当前密码关闭2FA</label><input type="password" id="twofaDisablePwd" placeholder="当前密码"></div>' +
+                    '<button class="btn btn-secondary" onclick="disable2fa()" style="width:100%; background:var(--error);">关闭两步验证</button>';
+            } else {
+                area.innerHTML = '<p style="color:var(--muted); font-size:13px; margin-bottom:12px;">❌ 未启用</p>' +
+                    '<button class="btn" onclick="setup2fa()" style="width:100%;">启用两步验证</button>';
+            }
+        });
+    }
+    function setup2fa() {
+        fetch('/api/2fa/setup', {method:'POST'}).then(function(r){return r.json();}).then(function(d){
+            var area = document.getElementById('twofaArea');
+            area.innerHTML = '<p style="font-size:13px; color:var(--muted); margin-bottom:12px;">1. 用 Google Authenticator 扫描下方二维码：</p>' +
+                '<div style="text-align:center; margin-bottom:16px;"><img src="' + d.qr_data_uri + '" width="200" height="200" style="border-radius:8px; background:white; padding:8px;"></div>' +
+                '<p style="font-size:12px; color:var(--muted); margin-bottom:16px; word-break:break-all;">无法扫码？手动输入密钥：<code style="background:var(--bg); padding:2px 6px; border-radius:4px;">' + d.secret + '</code></p>' +
+                '<p style="font-size:13px; color:var(--muted); margin-bottom:8px;">2. 输入APP显示的6位验证码：</p>' +
+                '<div class="form-group" style="margin-bottom:12px;"><input type="text" id="twofaConfirmCode" maxlength="6" placeholder="000000" style="text-align:center; letter-spacing:4px; font-size:18px;"></div>' +
+                '<div style="display:flex; gap:8px;"><button class="btn btn-secondary" onclick="load2faStatus()" style="flex:1;">取消</button><button class="btn" onclick="confirm2fa()" style="flex:1;">确认启用</button></div>';
+        });
+    }
+    window.setup2fa = setup2fa;
+    function confirm2fa() {
+        var code = document.getElementById('twofaConfirmCode').value.trim();
+        if (!code) { showToast('请输入验证码', 'error'); return; }
+        fetch('/api/2fa/confirm', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({code:code})})
+            .then(function(r){return r.json();}).then(function(d){
+                if (d.ok) { showToast('两步验证已启用', 'success'); load2faStatus(); }
+                else { showToast(d.error || '验证码错误', 'error'); }
+            });
+    }
+    window.confirm2fa = confirm2fa;
+    function disable2fa() {
+        var pwd = document.getElementById('twofaDisablePwd').value;
+        if (!pwd) { showToast('请输入密码', 'error'); return; }
+        fetch('/api/2fa/disable', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:pwd})})
+            .then(function(r){return r.json();}).then(function(d){
+                if (d.ok) { showToast('两步验证已关闭', 'success'); load2faStatus(); }
+                else { showToast(d.error || '关闭失败', 'error'); }
+            });
+    }
+    window.disable2fa = disable2fa;
+
+    // 设置面板切到账户tab时加载2FA状态
+    var _origSwitchTab = switchSettingsTab;
+    switchSettingsTab = function(tab) {
+        _origSwitchTab(tab);
+        if (tab === 'account') load2faStatus();
+    };
+    window.switchSettingsTab = switchSettingsTab;
     function loadEngineOptions() {
         // 同时加载接口列表(用于显示配置状态)和引擎列表
         fetch('/api/endpoints').then(function(r){return r.json();}).then(function(eps){
