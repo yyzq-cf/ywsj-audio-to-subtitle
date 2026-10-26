@@ -1,7 +1,10 @@
 """
-ASR engines - standalone implementation using JianYing (ByteDance) free ASR.
+ASR engines - standalone implementation using free cloud ASR services.
 Adapted from VideoCaptioner project (https://github.com/WEIFENG2333/VideoCaptioner)
-Sign generation uses remote service at asrtools-update.bkfeng.top
+
+Engines:
+  - bcut (B站必剪)   : 免费，无第三方依赖，调用B站官方API
+  - jianying (剪映)   : 免费，但签名依赖第三方服务 asrtools-update.bkfeng.top
 """
 
 import datetime
@@ -22,7 +25,7 @@ from pydub import AudioSegment
 
 logger = logging.getLogger(__name__)
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 
 
 class ASRSegment:
@@ -62,7 +65,164 @@ def audio_to_wav_bytes(audio_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
-# ===== AWS Signature helpers =====
+# ===== Bcut (B站必剪) ASR - 无第三方依赖 =====
+
+API_BASE_URL = "https://member.bilibili.com/x/bcut/rubick-interface"
+API_REQ_UPLOAD = API_BASE_URL + "/resource/create"
+API_COMMIT_UPLOAD = API_BASE_URL + "/resource/create/complete"
+API_CREATE_TASK = API_BASE_URL + "/task"
+API_QUERY_RESULT = API_BASE_URL + "/task/result"
+
+
+class BcutASR:
+    """Bilibili Bcut ASR - 直接调用B站官方API，无需任何第三方服务。"""
+
+    headers = {
+        "User-Agent": "Bilibili/1.0.0 (https://www.bilibili.com)",
+        "Content-Type": "application/json",
+    }
+
+    def __init__(self, audio_bytes: bytes, filename: str = 'audio'):
+        self.file_binary = audio_to_wav_bytes(audio_bytes)
+        self.filename = filename
+        self.task_id: Optional[str] = None
+        self._in_boss_key: Optional[str] = None
+        self._resource_id: Optional[str] = None
+        self._upload_id: Optional[str] = None
+        self._upload_urls: List[str] = []
+        self._per_size: int = 0
+        self._clips: int = 0
+        self._etags: List[str] = []
+        self._download_url: Optional[str] = None
+
+    def _upload(self):
+        """请求上传凭证并上传音频文件。"""
+        if not self.file_binary:
+            raise ValueError("No audio data to upload")
+
+        model_id = "8"
+
+        payload = json.dumps({
+            "type": 2,
+            "name": "audio.mp3",
+            "size": len(self.file_binary),
+            "ResourceFileType": "mp3",
+            "model_id": model_id,
+        })
+        resp = requests.post(API_REQ_UPLOAD, data=payload, headers=self.headers, timeout=15)
+        resp.raise_for_status()
+        resp = resp.json()
+
+        if resp.get("code") != 0:
+            raise Exception(f"Bcut upload request failed: {resp.get('message', resp)}")
+
+        data = resp["data"]
+        self._in_boss_key = data["in_boss_key"]
+        self._resource_id = data["resource_id"]
+        self._upload_id = data["upload_id"]
+        self._upload_urls = data["upload_urls"]
+        self._per_size = int(data["per_size"])
+        self._clips = len(data["upload_urls"])
+
+        # 上传分片
+        for clip in range(self._clips):
+            start = clip * self._per_size
+            end = (clip + 1) * self._per_size
+            r = requests.put(
+                self._upload_urls[clip],
+                data=self.file_binary[start:end],
+                headers=self.headers,
+                timeout=120,
+            )
+            r.raise_for_status()
+            etag = r.headers.get("Etag")
+            if etag is not None:
+                self._etags.append(etag)
+
+        # 提交上传
+        commit_data = json.dumps({
+            "InBossKey": self._in_boss_key,
+            "ResourceId": self._resource_id,
+            "Etags": ",".join(self._etags) if self._etags else "",
+            "UploadId": self._upload_id,
+            "model_id": model_id,
+        })
+        resp = requests.post(API_COMMIT_UPLOAD, data=commit_data, headers=self.headers, timeout=15)
+        resp.raise_for_status()
+        resp = resp.json()
+        if resp.get("code") != 0:
+            raise Exception(f"Bcut commit upload failed: {resp.get('message', resp)}")
+        self._download_url = resp["data"]["download_url"]
+
+    def _create_task(self) -> str:
+        """创建识别任务。"""
+        resp = requests.post(
+            API_CREATE_TASK,
+            json={"resource": self._download_url, "model_id": "8"},
+            headers=self.headers,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        resp = resp.json()
+        if resp.get("code") != 0:
+            raise Exception(f"Bcut create task failed: {resp.get('message', resp)}")
+        self.task_id = resp["data"]["task_id"]
+        return self.task_id or ""
+
+    def _query_result(self, task_id: Optional[str] = None) -> dict:
+        """轮询识别结果。"""
+        tid = task_id or self.task_id
+        for _ in range(300):
+            resp = requests.get(
+                API_QUERY_RESULT,
+                params={"model_id": 7, "task_id": tid},
+                headers=self.headers,
+                timeout=15,
+            )
+            resp.raise_for_status()
+            resp = resp.json()
+            if resp.get("code") != 0:
+                raise Exception(f"Bcut query failed: {resp.get('message', resp)}")
+            data = resp.get("data", {})
+            state = data.get("state", -1)
+            # state: 0=待处理 1=处理中 2=失败 3=部分成功 4=完成
+            if state in (2, 3):
+                err = data.get("err", "未知错误")
+                if state == 3:
+                    # 部分成功时也可能没有result，继续等
+                    if data.get("result"):
+                        return json.loads(data["result"])
+                raise Exception(f"Bcut ASR task failed (state={state}): {err}")
+            if state == 4:
+                if not data.get("result"):
+                    return {"utterances": []}  # 没有识别到内容
+                return json.loads(data["result"])
+            time.sleep(1)
+        raise Exception("Bcut ASR recognition timeout (300s)")
+
+    def recognize(self, callback=None) -> List[ASRSegment]:
+        if callback: callback(10, '请求上传凭证...')
+        self._upload()
+        if callback: callback(40, '提交识别任务...')
+        self._create_task()
+        if callback: callback(60, '识别中，请稍候...')
+        result = self._query_result()
+        if callback: callback(90, '解析结果...')
+        return self._parse(result)
+
+    def _parse(self, result: dict) -> List[ASRSegment]:
+        segments = []
+        utterances = result.get("utterances", [])
+        for u in utterances:
+            text = u.get("transcript", "").strip()
+            start = u.get("start_time", 0)
+            end = u.get("end_time", 0)
+            if text:
+                segments.append(ASRSegment(text, int(start), int(end)))
+        return segments
+
+
+# ===== AWS Signature helpers (for JianYing) =====
 
 def _sign(key: bytes, msg: str) -> bytes:
     return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
@@ -92,16 +252,16 @@ def _aws_signature(secret_key: str, request_parameters: str, headers: Dict[str, 
     return hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-# ===== JianYing (CapCut) ASR =====
+# ===== JianYing (CapCut) ASR - 依赖第三方签名服务 =====
 
 class JianYingASR:
-    """JianYing free ASR - uses remote sign service."""
+    """JianYing free ASR - uses remote sign service at asrtools-update.bkfeng.top."""
 
     def __init__(self, audio_bytes: bytes, filename: str = 'audio'):
         self.file_binary = audio_to_wav_bytes(audio_bytes)
         self.filename = filename
         self.crc32_hex = format(zlib.crc32(self.file_binary) & 0xFFFFFFFF, "08x")
-        
+
         self.session_token = None
         self.secret_key = None
         self.access_key = None
@@ -271,8 +431,12 @@ class JianYingASR:
 # ===== Engine registry =====
 
 ENGINES = {
+    'bcut': {
+        'label': '必剪 (B站) - 免费·推荐',
+        'needs_key': False,
+    },
     'jianying': {
-        'label': '剪映 (字节跳动) - 免费',
+        'label': '剪映 (字节) - 免费·备用',
         'needs_key': False,
     },
 }
@@ -280,7 +444,10 @@ ENGINES = {
 
 def recognize_audio(audio_bytes: bytes, engine: str, filename: str = 'audio',
                     callback=None) -> List[ASRSegment]:
-    if engine == 'jianying':
+    if engine == 'bcut':
+        asr = BcutASR(audio_bytes, filename)
+        return asr.recognize(callback)
+    elif engine == 'jianying':
         asr = JianYingASR(audio_bytes, filename)
         return asr.recognize(callback)
     raise ValueError(f"Unknown engine: {engine}")
