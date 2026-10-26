@@ -108,8 +108,8 @@ class BcutASR:
     }
 
     def __init__(self, audio_bytes: bytes, filename: str = 'audio'):
-        self.file_binary = audio_to_wav_bytes(audio_bytes, self.filename)
         self.filename = filename
+        self.file_binary = audio_to_wav_bytes(audio_bytes, self.filename)
         self.task_id: Optional[str] = None
         self._in_boss_key: Optional[str] = None
         self._resource_id: Optional[str] = None
