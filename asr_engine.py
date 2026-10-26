@@ -540,28 +540,13 @@ class OpenAICompatibleASR:
         return segments
 
 
-# ===== Engine registry =====
+# ===== Engine registry (内置引擎，用户接口通过 /api/engines 动态返回) =====
 
-ENGINES = {
+STATIC_ENGINES = {
     'bcut': {
         'label': '必剪 (B站) - 免费·仅中英文',
         'needs_key': False,
         'languages': '中文、英文',
-    },
-    'siliconflow': {
-        'label': '硅基流动 ASR - 多语言·需API Key',
-        'needs_key': True,
-        'languages': '中/英/日/韩/粤等',
-    },
-    'openai': {
-        'label': 'OpenAI兼容接口 - 多语言·需API Key',
-        'needs_key': True,
-        'languages': '中/英/日/韩等(OS Whisper)',
-    },
-    'jianying': {
-        'label': '剪映 (字节) - 免费·备用',
-        'needs_key': False,
-        'languages': '中文',
     },
 }
 
@@ -571,20 +556,15 @@ def recognize_audio(audio_bytes: bytes, engine: str, filename: str = 'audio',
     if engine == 'bcut':
         asr = BcutASR(audio_bytes, filename)
         return asr.recognize(callback)
-    elif engine == 'siliconflow':
-        asr = OpenAICompatibleASR(audio_bytes, filename,
-                                  api_key=api_key,
-                                  base_url='https://api.siliconflow.cn/v1',
-                                  model=model or 'FunAudioLLM/SenseVoiceSmall')
-        return asr.recognize(callback)
-    elif engine == 'openai':
-        asr = OpenAICompatibleASR(audio_bytes, filename,
-                                  api_key=api_key,
-                                  base_url=base_url,
-                                  model=model or 'whisper-1')
-        return asr.recognize(callback)
-    elif engine == 'jianying':
-        asr = JianYingASR(audio_bytes, filename)
+    elif engine.startswith('ep:'):
+        # 用户自定义接口，统一用 OpenAICompatibleASR
+        if not api_key:
+            raise ValueError("该接口未配置 API Key")
+        if not base_url:
+            raise ValueError("该接口未配置 Base URL")
+        if not model:
+            raise ValueError("该接口未配置模型名称")
+        asr = OpenAICompatibleASR(audio_bytes, filename, api_key=api_key, base_url=base_url, model=model)
         return asr.recognize(callback)
     raise ValueError(f"Unknown engine: {engine}")
 

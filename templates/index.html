@@ -134,20 +134,12 @@
         <div class="form-row">
             <div class="form-group">
                 <label>语音识别引擎</label>
-                <select id="engine" onchange="onEngineChange()">
-                    {% for key, info in engines.items() %}
-                    <option value="{{ key }}">{{ info.label }}</option>
-                    {% endfor %}
-                </select>
+                <select id="engine" onchange="onEngineChange()"></select>
                 <div id="engineHint" style="margin-top:8px; font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px;">
                     <span>🌐</span><span id="engineLangText"></span>
                 </div>
-                <div id="sfKeyHint" style="margin-top:8px; font-size:12px; display:none;">
-                    <span id="sfKeyStatus" style="color:var(--muted);"></span>
-                    <a href="#" onclick="showSettings('api'); return false;" style="color:var(--accent); margin-left:8px;">前往设置</a>
-                </div>
-                <div id="oaiKeyHint" style="margin-top:8px; font-size:12px; display:none;">
-                    <span id="oaiKeyStatus" style="color:var(--muted);"></span>
+                <div id="epKeyHint" style="margin-top:8px; font-size:12px; display:none;">
+                    <span id="epKeyStatus" style="color:var(--muted);"></span>
                     <a href="#" onclick="showSettings('api'); return false;" style="color:var(--accent); margin-left:8px;">前往设置</a>
                 </div>
             </div>
@@ -212,51 +204,48 @@
         <div style="overflow-y:auto; flex:1;">
             <!-- API 配置 Tab -->
             <div class="tab-content" id="tabApi">
-                <!-- 硅基流动 -->
-                <div style="margin-bottom:24px; padding-bottom:20px; border-bottom:1px solid var(--border);">
-                    <h4 style="margin:0 0 4px; font-size:15px;">🟢 硅基流动 SiliconFlow</h4>
-                    <p style="font-size:12px; color:var(--muted); margin:0 0 14px;">多语言识别（中/英/日/韩/粤），申请：<a href="https://cloud.siliconflow.cn" target="_blank" style="color:var(--accent);">cloud.siliconflow.cn</a></p>
-                    <div class="form-group" style="margin-bottom:12px;">
-                        <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">API Key</label>
-                        <input type="text" id="sfApiKey" placeholder="sk-xxxxxxxx...">
-                    </div>
-                    <div class="form-group" style="margin-bottom:12px;">
-                        <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">识别模型</label>
-                        <select id="sfModel" style="width:100%;">
-                            <option value="FunAudioLLM/SenseVoiceSmall">SenseVoiceSmall（推荐·多语言·快）</option>
-                            <option value="XingChenAGI/XingChenASR-V3.2-Ultra">XingChenASR-V3.2-Ultra（中文·高精度）</option>
-                            <option value="XingChenAGI/XingChenASR-V3.2">XingChenASR-V3.2（中文·标准）</option>
-                        </select>
-                    </div>
-                    <div style="display:flex; gap:8px;">
-                        <button class="btn" onclick="saveSfConfig()" style="flex:1;">💾 保存</button>
-                        <button class="btn btn-secondary" onclick="testSfApi()" id="testSfBtn" style="flex:1;">🔌 测试连接</button>
+                <!-- 已配置接口列表 -->
+                <div style="margin-bottom:20px;">
+                    <h4 style="margin:0 0 8px; font-size:15px; display:flex; justify-content:space-between; align-items:center;">
+                        📡 已配置接口
+                        <button class="btn btn-sm" onclick="showAddEpForm()" style="background:var(--success); padding:4px 12px; font-size:13px;">➕ 添加</button>
+                    </h4>
+                    <div id="epList" style="display:flex; flex-direction:column; gap:8px;">
+                        <p style="color:var(--muted); font-size:13px; text-align:center; padding:20px;" id="epEmptyHint">暂无接口，点击右上角「添加」配置</p>
                     </div>
                 </div>
-                <!-- OpenAI 兼容 -->
-                <div>
-                    <h4 style="margin:0 0 4px; font-size:15px;">🔵 OpenAI 兼容接口</h4>
-                    <p style="font-size:12px; color:var(--muted); margin:0 0 14px;">支持 OpenAI官方 / Groq / Azure / 其他兼容服务，Whisper 多语言识别</p>
+                <!-- 添加/编辑表单 -->
+                <div id="epForm" style="display:none; padding:16px; background:var(--bg); border-radius:10px; border:1px solid var(--border);">
+                    <h4 id="epFormTitle" style="margin:0 0 14px; font-size:15px;">➕ 添加接口</h4>
+                    <input type="hidden" id="epEditId">
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">接口备注名（使用时显示）</label>
+                        <input type="text" id="epName" placeholder="如：我的硅基流动1号">
+                    </div>
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">接口类型</label>
+                        <select id="epType" onchange="onEpTypeChange()" style="width:100%;">
+                            <option value="siliconflow">🟢 硅基流动 SiliconFlow</option>
+                            <option value="openai">🔵 OpenAI</option>
+                            <option value="groq">🟠 Groq（免费）</option>
+                        </select>
+                    </div>
                     <div class="form-group" style="margin-bottom:12px;">
                         <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">API Base URL</label>
-                        <input type="text" id="oaiBaseUrl" placeholder="https://api.openai.com/v1">
+                        <input type="text" id="epBaseUrl" placeholder="https://api.openai.com/v1">
                     </div>
                     <div class="form-group" style="margin-bottom:12px;">
                         <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">API Key</label>
-                        <input type="text" id="oaiApiKey" placeholder="sk-xxxxxxxx...">
+                        <input type="text" id="epApiKey" placeholder="sk-xxxxxxxx...">
                     </div>
-                    <div class="form-group" style="margin-bottom:12px;">
+                    <div class="form-group" style="margin-bottom:14px;">
                         <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">模型名称</label>
-                        <input type="text" id="oaiModel" placeholder="whisper-1">
-                    </div>
-                    <div style="font-size:11px; color:var(--muted); margin-bottom:12px; padding:8px 10px; background:var(--bg); border-radius:6px;">
-                        💡 常见配置：<br>
-                        • OpenAI官方: <code>https://api.openai.com/v1</code> + <code>whisper-1</code><br>
-                        • Groq(免费): <code>https://api.groq.com/openai/v1</code> + <code>whisper-large-v3</code>
+                        <input type="text" id="epModel" placeholder="whisper-1">
                     </div>
                     <div style="display:flex; gap:8px;">
-                        <button class="btn" onclick="saveOaiConfig()" style="flex:1;">💾 保存</button>
-                        <button class="btn btn-secondary" onclick="testOaiApi()" id="testOaiBtn" style="flex:1;">🔌 测试连接</button>
+                        <button class="btn btn-secondary" onclick="cancelEpForm()" style="flex:1;">取消</button>
+                        <button class="btn btn-secondary" onclick="testEpForm()" id="epTestBtn" style="flex:1;">🔌 测试</button>
+                        <button class="btn" onclick="saveEpForm()" style="flex:1;">💾 保存</button>
                     </div>
                 </div>
             </div>
@@ -363,68 +352,14 @@
             .catch(function() { pollTimer = setTimeout(pollProgress, 2000); });
     }
 
-    // ===== 引擎切换 + SiliconFlow配置 =====
-    var engineData = {};
-    function onEngineChange() {
-        var sel = document.getElementById('engine');
-        var key = sel.value;
-        var info = engineData[key] || {};
-        // 语言提示
-        var langText = info.languages || '';
-        document.getElementById('engineLangText').textContent = langText ? ('支持语言: ' + langText) : '';
-        // SF Key提示
-        var sfHint = document.getElementById('sfKeyHint');
-        var oaiHint = document.getElementById('oaiKeyHint');
-        sfHint.style.display = (key === 'siliconflow') ? 'block' : 'none';
-        oaiHint.style.display = (key === 'openai') ? 'block' : 'none';
-        if (key === 'siliconflow') loadSfStatus();
-        if (key === 'openai') loadOaiStatus();
-    }
-    function loadSfStatus() {
-        fetch('/api/config').then(function(r){return r.json();}).then(function(d){
-            var el = document.getElementById('sfKeyStatus');
-            if (d.siliconflow_api_key_set) {
-                el.textContent = '✅ 已配置 (' + d.siliconflow_api_key + ')';
-                el.style.color = 'var(--success)';
-            } else {
-                el.textContent = '❌ 未配置';
-                el.style.color = 'var(--muted)';
-            }
-        }).catch(function(){});
-    }
-    function loadOaiStatus() {
-        fetch('/api/config').then(function(r){return r.json();}).then(function(d){
-            var el = document.getElementById('oaiKeyStatus');
-            if (d.openai_api_key_set) {
-                el.textContent = '✅ 已配置 (' + d.openai_api_key + ' · ' + d.openai_model + ')';
-                el.style.color = 'var(--success)';
-            } else {
-                el.textContent = '❌ 未配置';
-                el.style.color = 'var(--muted)';
-            }
-        }).catch(function(){});
-    }
     // ===== 设置面板 =====
     function showSettings(tab) {
-        // 加载当前配置
-        fetch('/api/config').then(function(r){return r.json();}).then(function(d){
-            // 硅基流动
-            document.getElementById('sfModel').value = d.siliconflow_model || 'FunAudioLLM/SenseVoiceSmall';
-            var sfInp = document.getElementById('sfApiKey');
-            sfInp.value = '';
-            sfInp.placeholder = d.siliconflow_api_key_set ? ('当前: ' + d.siliconflow_api_key) : 'sk-xxxxxxxx...';
-            // OpenAI
-            document.getElementById('oaiBaseUrl').value = d.openai_base_url || 'https://api.openai.com/v1';
-            document.getElementById('oaiModel').value = d.openai_model || 'whisper-1';
-            var oaiInp = document.getElementById('oaiApiKey');
-            oaiInp.value = '';
-            oaiInp.placeholder = d.openai_api_key_set ? ('当前: ' + d.openai_api_key) : 'sk-xxxxxxxx...';
-        });
         document.getElementById('settingsModal').classList.add('show');
         if (tab) switchSettingsTab(tab); else switchSettingsTab('api');
+        if (!tab || tab === 'api') loadEpList();
     }
     window.showSettings = showSettings;
-    function closeSettings() { document.getElementById('settingsModal').classList.remove('show'); }
+    function closeSettings() { document.getElementById('settingsModal').classList.remove('show'); cancelEpForm(); }
     window.closeSettings = closeSettings;
     function switchSettingsTab(tab) {
         document.querySelectorAll('.settings-tab').forEach(function(btn){
@@ -442,89 +377,200 @@
         document.getElementById('tabAccount').style.display = (tab === 'account') ? 'block' : 'none';
     }
     window.switchSettingsTab = switchSettingsTab;
-    function saveSfConfig() {
-        var key = document.getElementById('sfApiKey').value.trim();
-        var model = document.getElementById('sfModel').value;
-        var body = { siliconflow_model: model };
-        if (key) body.siliconflow_api_key = key;
-        fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
-            .then(function(r){return r.json();})
-            .then(function(d){
-                if (d.ok) { showToast('硅基流动配置已保存', 'success'); loadSfStatus(); }
-                else { showToast('保存失败', 'error'); }
-            })
-            .catch(function(e){ showToast('保存失败: ' + e.message, 'error'); });
-    }
-    window.saveSfConfig = saveSfConfig;
-    function saveOaiConfig() {
-        var key = document.getElementById('oaiApiKey').value.trim();
-        var baseUrl = document.getElementById('oaiBaseUrl').value.trim();
-        var model = document.getElementById('oaiModel').value.trim();
-        var body = { openai_base_url: baseUrl, openai_model: model };
-        if (key) body.openai_api_key = key;
-        fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
-            .then(function(r){return r.json();})
-            .then(function(d){
-                if (d.ok) { showToast('OpenAI配置已保存', 'success'); loadOaiStatus(); }
-                else { showToast('保存失败', 'error'); }
-            })
-            .catch(function(e){ showToast('保存失败: ' + e.message, 'error'); });
-    }
-    window.saveOaiConfig = saveOaiConfig;
 
-    // ===== 测试连接 =====
-    function testSfApi() {
-        var key = document.getElementById('sfApiKey').value.trim();
-        var model = document.getElementById('sfModel').value;
-        var body = { engine: 'siliconflow', model: model };
-        if (key) body.api_key = key;
-        testApi(body, 'testSfBtn');
+    // ===== Endpoint (API接口) CRUD =====
+    var EP_TYPE_DEFAULTS = {
+        siliconflow: {base_url:'https://api.siliconflow.cn/v1', model:'FunAudioLLM/SenseVoiceSmall', icon:'🟢'},
+        openai:      {base_url:'https://api.openai.com/v1',     model:'whisper-1',               icon:'🔵'},
+        groq:        {base_url:'https://api.groq.com/openai/v1', model:'whisper-large-v3',        icon:'🟠'},
+    };
+    var epList = []; // 缓存
+
+    function loadEpList() {
+        fetch('/api/endpoints').then(function(r){return r.json();}).then(function(d){
+            epList = d;
+            renderEpList();
+        });
     }
-    window.testSfApi = testSfApi;
-    function testOaiApi() {
-        var key = document.getElementById('oaiApiKey').value.trim();
-        var baseUrl = document.getElementById('oaiBaseUrl').value.trim();
-        var model = document.getElementById('oaiModel').value.trim();
-        var body = { engine: 'openai', base_url: baseUrl, model: model };
-        if (key) body.api_key = key;
-        testApi(body, 'testOaiBtn');
+    function renderEpList() {
+        var container = document.getElementById('epList');
+        if (!epList.length) {
+            container.innerHTML = '<p style="color:var(--muted); font-size:13px; text-align:center; padding:20px;">暂无接口，点击右上角「添加」配置</p>';
+            return;
+        }
+        var html = '';
+        epList.forEach(function(ep) {
+            var icon = (EP_TYPE_DEFAULTS[ep.type]||{}).icon || '🔌';
+            html += '<div style="display:flex; align-items:center; justify-content:space-between; padding:12px; background:var(--bg); border-radius:8px; border:1px solid var(--border);">' +
+                '<div style="flex:1; min-width:0;">' +
+                    '<div style="font-weight:600; font-size:14px;">' + icon + ' ' + esc(ep.name) + '</div>' +
+                    '<div style="font-size:11px; color:var(--muted); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + esc(ep.model) + ' · ' + (ep.api_key_set ? '✅' : '❌') + '</div>' +
+                '</div>' +
+                '<div style="display:flex; gap:4px; flex-shrink:0;">' +
+                    '<button class="btn btn-sm" onclick="testEpById(\'' + ep.id + '\')" title="测试" style="padding:4px 8px; font-size:13px;">🔌</button>' +
+                    '<button class="btn btn-sm" onclick="editEp(\'' + ep.id + '\')" title="编辑" style="padding:4px 8px; font-size:13px;">✏️</button>' +
+                    '<button class="btn btn-sm" onclick="delEp(\'' + ep.id + '\',\'' + esc(ep.name) + '\')" title="删除" style="padding:4px 8px; font-size:13px; background:var(--error);">🗑</button>' +
+                '</div>' +
+            '</div>';
+        });
+        container.innerHTML = html;
     }
-    window.testOaiApi = testOaiApi;
-    function testApi(body, btnId) {
-        var btn = document.getElementById(btnId);
-        var origText = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = '⏳ 测试中...';
-        fetch('/api/test-api', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
-            .then(function(r){return r.json();})
-            .then(function(d){
-                btn.disabled = false;
-                btn.textContent = origText;
-                if (d.ok) {
-                    btn.style.background = 'var(--success)';
-                    btn.textContent = '✅ 连接成功';
-                    showToast('连接成功! ' + (d.message||''), 'success');
-                    setTimeout(function(){ btn.textContent = origText; btn.style.background = ''; }, 3000);
-                } else {
-                    btn.style.background = 'var(--error)';
-                    btn.textContent = '❌ 失败';
-                    showToast(d.error || '连接失败', 'error');
-                    setTimeout(function(){ btn.textContent = origText; btn.style.background = ''; }, 3000);
-                }
-            })
-            .catch(function(e){
-                btn.disabled = false;
-                btn.textContent = origText;
+
+    function showAddEpForm() {
+        document.getElementById('epForm').style.display = 'block';
+        document.getElementById('epFormTitle').textContent = '➕ 添加接口';
+        document.getElementById('epEditId').value = '';
+        document.getElementById('epName').value = '';
+        document.getElementById('epType').value = 'siliconflow';
+        document.getElementById('epApiKey').value = '';
+        document.getElementById('epApiKey').placeholder = 'sk-xxxxxxxx...';
+        onEpTypeChange();
+    }
+    window.showAddEpForm = showAddEpForm;
+    function cancelEpForm() { document.getElementById('epForm').style.display = 'none'; }
+    window.cancelEpForm = cancelEpForm;
+    function onEpTypeChange() {
+        var t = document.getElementById('epType').value;
+        var d = EP_TYPE_DEFAULTS[t] || {};
+        if (!document.getElementById('epBaseUrl').value || Object.values(EP_TYPE_DEFAULTS).some(function(e){return e.base_url===document.getElementById('epBaseUrl').value;})) {
+            document.getElementById('epBaseUrl').value = d.base_url || '';
+        }
+        if (!document.getElementById('epModel').value || Object.values(EP_TYPE_DEFAULTS).some(function(e){return e.model===document.getElementById('epModel').value;})) {
+            document.getElementById('epModel').value = d.model || '';
+        }
+    }
+    window.onEpTypeChange = onEpTypeChange;
+    function editEp(id) {
+        var ep = epList.find(function(e){return e.id===id;});
+        if (!ep) return;
+        document.getElementById('epForm').style.display = 'block';
+        document.getElementById('epFormTitle').textContent = '✏️ 编辑接口';
+        document.getElementById('epEditId').value = ep.id;
+        document.getElementById('epName').value = ep.name;
+        document.getElementById('epType').value = ep.type;
+        document.getElementById('epBaseUrl').value = ep.base_url;
+        document.getElementById('epModel').value = ep.model;
+        document.getElementById('epApiKey').value = '';
+        document.getElementById('epApiKey').placeholder = ep.api_key_set ? ('当前: ' + ep.api_key) : 'sk-xxxxxxxx...';
+    }
+    window.editEp = editEp;
+    function delEp(id, name) {
+        if (!confirm('确定删除接口「' + name + '」吗？')) return;
+        fetch('/api/endpoints/' + id, {method:'DELETE'}).then(function(r){return r.json();}).then(function(d){
+            if (d.ok) { showToast('已删除', 'success'); loadEpList(); loadEngineOptions(); }
+        });
+    }
+    window.delEp = delEp;
+    function saveEpForm() {
+        var id = document.getElementById('epEditId').value;
+        var body = {
+            name: document.getElementById('epName').value.trim(),
+            type: document.getElementById('epType').value,
+            base_url: document.getElementById('epBaseUrl').value.trim(),
+            model: document.getElementById('epModel').value.trim(),
+        };
+        var key = document.getElementById('epApiKey').value.trim();
+        if (key) body.api_key = key;
+        if (!body.name) { showToast('请填写接口名称', 'error'); return; }
+        if (id) {
+            fetch('/api/endpoints/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+                .then(function(r){return r.json();}).then(function(d){
+                    if (d.ok) { showToast('已保存', 'success'); cancelEpForm(); loadEpList(); loadEngineOptions(); }
+                    else { showToast(d.error||'保存失败', 'error'); }
+                });
+        } else {
+            if (!body.api_key) { showToast('请填写 API Key', 'error'); return; }
+            fetch('/api/endpoints', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+                .then(function(r){return r.json();}).then(function(d){
+                    if (d.ok) { showToast('已添加', 'success'); cancelEpForm(); loadEpList(); loadEngineOptions(); }
+                    else { showToast(d.error||'添加失败', 'error'); }
+                });
+        }
+    }
+    window.saveEpForm = saveEpForm;
+    function testEpForm() {
+        var body = {
+            type: document.getElementById('epType').value,
+            name: document.getElementById('epName').value.trim() || '测试',
+            base_url: document.getElementById('epBaseUrl').value.trim(),
+            model: document.getElementById('epModel').value.trim(),
+        };
+        var key = document.getElementById('epApiKey').value.trim();
+        if (key) body.api_key = key;
+        doTestApi(body, 'epTestBtn');
+    }
+    window.testEpForm = testEpForm;
+    function testEpById(id) {
+        doTestApi({id: id}, null);
+    }
+    window.testEpById = testEpById;
+    function doTestApi(body, btnId) {
+        var btn = btnId ? document.getElementById(btnId) : null;
+        var orig = btn ? btn.textContent : '';
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ 测试中...'; }
+        fetch('/api/endpoints/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+            .then(function(r){return r.json();}).then(function(d){
+                if (btn) { btn.disabled = false; btn.textContent = orig; }
+                if (d.ok) showToast(d.message || '连接成功', 'success');
+                else showToast(d.error || '连接失败', 'error');
+            }).catch(function(e){
+                if (btn) { btn.disabled = false; btn.textContent = orig; }
                 showToast('测试失败: ' + e.message, 'error');
             });
     }
-    window.testApi = testApi;
 
-    // 页面加载时获取引擎信息
-    fetch('/api/engines').then(function(r){return r.json();}).then(function(d){
-        engineData = d;
-        onEngineChange();
-    });
+    window.submitChangePassword = function() {
+        var oldPwd = document.getElementById('oldPassword').value;
+        var newPwd = document.getElementById('newPassword').value;
+        var confirmPwd = document.getElementById('confirmPassword').value;
+        if (!newPwd || newPwd.length < 4) { showToast('新密码至少4位', 'error'); return; }
+        if (newPwd !== confirmPwd) { showToast('两次密码不一致', 'error'); return; }
+        fetch('/api/auth/change-password', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ old_password: oldPwd, new_password: newPwd }) })
+            .then(function(r){return r.json();}).then(function(data){
+                if (data.ok) { showToast('密码已修改', 'success'); closeSettings(); }
+                else { showToast(data.error || '修改失败', 'error'); }
+            });
+    };
+
+    // ===== 引擎下拉框动态填充 =====
+    function loadEngineOptions() {
+        fetch('/api/engines').then(function(r){return r.json();}).then(function(d){
+            var sel = document.getElementById('engine');
+            var cur = sel.value;
+            sel.innerHTML = '';
+            Object.keys(d).forEach(function(key) {
+                var opt = document.createElement('option');
+                opt.value = key;
+                opt.textContent = d[key].label;
+                sel.appendChild(opt);
+            });
+            // 尽量保持之前的选择
+            if (cur && d[cur]) sel.value = cur;
+            onEngineChange();
+        });
+    }
+    function onEngineChange() {
+        var sel = document.getElementById('engine');
+        var key = sel.value;
+        fetch('/api/engines').then(function(r){return r.json();}).then(function(d){
+            var info = d[key] || {};
+            document.getElementById('engineLangText').textContent = info.languages ? ('支持语言: ' + info.languages) : '';
+            var hint = document.getElementById('epKeyHint');
+            if (key.startsWith('ep:')) {
+                hint.style.display = 'block';
+                var ep = epList.find(function(e){return 'ep:'+e.id === key;});
+                var el = document.getElementById('epKeyStatus');
+                if (ep && ep.api_key_set) { el.textContent = '✅ 已配置'; el.style.color = 'var(--success)'; }
+                else { el.textContent = '❌ 未配置'; el.style.color = 'var(--muted)'; }
+            } else {
+                hint.style.display = 'none';
+            }
+        });
+    }
+    window.onEngineChange = onEngineChange;
+
+    // 页面初始化
+    loadEngineOptions();
 
     function msToTime(ms) {
         var h = Math.floor(ms/3600000), m = Math.floor((ms%3600000)/60000), s = Math.floor((ms%60000)/1000);

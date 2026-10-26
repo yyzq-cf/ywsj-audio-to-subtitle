@@ -13,7 +13,7 @@ from urllib.parse import quote
 from flask import Flask, request, jsonify, render_template, Response, session, redirect, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from asr_engine import ENGINES, recognize_audio, ASRSegment, build_srt, build_vtt, build_txt, ms_to_srt_time
+from asr_engine import STATIC_ENGINES, recognize_audio, ASRSegment, build_srt, build_vtt, build_txt, ms_to_srt_time
 
 # ywsj-audio-to-subtitle
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -218,20 +218,39 @@ tasks = {}
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html', engines=ENGINES, version=APP_VERSION)
+    return render_template('index.html', engines=STATIC_ENGINES, version=APP_VERSION)
 
 @app.route('/api/engines')
 @login_required
 def engines():
-    return jsonify({k: {'label': v['label'], 'needs_key': v.get('needs_key', False), 'languages': v.get('languages', '')} for k, v in ENGINES.items()})
+    """返回可用引擎列表: 内置引擎 + 用户配置的接口"""
+    result = {}
+    # 内置引擎
+    for k, v in STATIC_ENGINES.items():
+        result[k] = {'label': v['label'], 'type': 'builtin', 'needs_key': False, 'languages': v.get('languages', '')}
+    # 用户配置的接口
+    cfg = load_config()
+    for ep in cfg.get('endpoints', []):
+        ep_id = f"ep:{ep['id']}"
+        name = ep.get('name', ep.get('type', ''))
+        result[ep_id] = {
+            'label': name,
+            'type': ep.get('type', 'openai'),
+            'needs_key': True,
+            'languages': _type_languages(ep.get('type', 'openai')),
+        }
+    return result
 
 
-# ===== SiliconFlow API Key storage =====
+def _type_languages(t):
+    return {'siliconflow': '中/英/日/韩/粤等', 'openai': '中/英/日/韩等(Whisper)', 'groq': '多语言(Whisper)'}.get(t, '多语言')
+
+
+# ===== Endpoint (API接口) storage =====
 def _get_config_path():
     return os.path.join(DATA_DIR, 'config.json')
 
 def load_config():
-    """读取配置（SiliconFlow API Key等）"""
     import json as _json
     try:
         with open(_get_config_path(), 'r') as f:
@@ -240,84 +259,124 @@ def load_config():
         return {}
 
 def save_config(cfg):
-    """保存配置"""
     import json as _json
     with open(_get_config_path(), 'w') as f:
         _json.dump(cfg, f, ensure_ascii=False, indent=2)
 
-@app.route('/api/config', methods=['GET', 'POST'])
+def _mask(key):
+    if not key: return ''
+    return key[:8] + '****' + key[-4:] if len(key) > 12 else '****'
+
+TYPE_DEFAULTS = {
+    'siliconflow': {'base_url': 'https://api.siliconflow.cn/v1', 'model': 'FunAudioLLM/SenseVoiceSmall'},
+    'openai':      {'base_url': 'https://api.openai.com/v1',     'model': 'whisper-1'},
+    'groq':        {'base_url': 'https://api.groq.com/openai/v1',  'model': 'whisper-large-v3'},
+}
+
+@app.route('/api/endpoints', methods=['GET'])
 @login_required
-def config_api():
-    if request.method == 'POST':
-        data = request.json or {}
-        cfg = load_config()
-        if 'siliconflow_api_key' in data:
-            cfg['siliconflow_api_key'] = data['siliconflow_api_key'].strip()
-        if 'siliconflow_model' in data:
-            cfg['siliconflow_model'] = data['siliconflow_model'].strip() or 'FunAudioLLM/SenseVoiceSmall'
-        if 'openai_api_key' in data:
-            cfg['openai_api_key'] = data['openai_api_key'].strip()
-        if 'openai_base_url' in data:
-            cfg['openai_base_url'] = data['openai_base_url'].strip() or 'https://api.openai.com/v1'
-        if 'openai_model' in data:
-            cfg['openai_model'] = data['openai_model'].strip() or 'whisper-1'
-        save_config(cfg)
-        return jsonify({'ok': True})
-    # GET: 返回配置（API key脱敏）
+def get_endpoints():
     cfg = load_config()
+    eps = cfg.get('endpoints', [])
+    return jsonify([{
+        'id': ep['id'],
+        'name': ep.get('name', ''),
+        'type': ep.get('type', 'openai'),
+        'api_key': _mask(ep.get('api_key', '')),
+        'api_key_set': bool(ep.get('api_key')),
+        'base_url': ep.get('base_url', TYPE_DEFAULTS.get(ep.get('type','openai'),{}).get('base_url','')),
+        'model': ep.get('model', ''),
+    } for ep in eps])
 
-    def mask(key):
-        return key[:8] + '****' + key[-4:] if len(key) > 12 else ('****' if key else '')
-
-    return jsonify({
-        'siliconflow_api_key': mask(cfg.get('siliconflow_api_key', '')),
-        'siliconflow_api_key_set': bool(cfg.get('siliconflow_api_key')),
-        'siliconflow_model': cfg.get('siliconflow_model', 'FunAudioLLM/SenseVoiceSmall'),
-        'openai_api_key': mask(cfg.get('openai_api_key', '')),
-        'openai_api_key_set': bool(cfg.get('openai_api_key')),
-        'openai_base_url': cfg.get('openai_base_url', 'https://api.openai.com/v1'),
-        'openai_model': cfg.get('openai_model', 'whisper-1'),
-    })
-
-
-@app.route('/api/test-api', methods=['POST'])
+@app.route('/api/endpoints', methods=['POST'])
 @login_required
-def test_api():
-    """测试API连接是否可用。用一段极短音频发送识别请求验证。"""
+def add_endpoint():
     data = request.json or {}
-    engine = data.get('engine', '')
-    api_key = data.get('api_key', '')
-    base_url = data.get('base_url', '')
-    model = data.get('model', '')
-
-    # 如果没传Key，尝试用已保存的
+    ep_type = data.get('type', 'openai')
+    if ep_type not in TYPE_DEFAULTS:
+        return jsonify({'error': '未知接口类型'}), 400
     cfg = load_config()
-    if engine == 'siliconflow':
-        if not api_key:
-            api_key = cfg.get('siliconflow_api_key', '')
-        if not api_key:
-            return jsonify({'ok': False, 'error': 'API Key 未填写'}), 400
-        if not model:
-            model = cfg.get('siliconflow_model', 'FunAudioLLM/SenseVoiceSmall')
-        test_base_url = 'https://api.siliconflow.cn/v1'
-    elif engine == 'openai':
-        if not api_key:
-            api_key = cfg.get('openai_api_key', '')
-        if not api_key:
-            return jsonify({'ok': False, 'error': 'API Key 未填写'}), 400
-        if not base_url:
-            base_url = cfg.get('openai_base_url', 'https://api.openai.com/v1')
-        if not model:
-            model = cfg.get('openai_model', 'whisper-1')
-        test_base_url = base_url.rstrip('/')
-    else:
-        return jsonify({'ok': False, 'error': '不支持的引擎'}), 400
+    eps = cfg.get('endpoints', [])
+    ep = {
+        'id': str(uuid.uuid4())[:8],
+        'name': data.get('name', '').strip() or f"{ep_type}-{len(eps)+1}",
+        'type': ep_type,
+        'api_key': data.get('api_key', '').strip(),
+        'base_url': data.get('base_url', '').strip() or TYPE_DEFAULTS[ep_type]['base_url'],
+        'model': data.get('model', '').strip() or TYPE_DEFAULTS[ep_type]['model'],
+    }
+    if not ep['api_key']:
+        return jsonify({'error': 'API Key 不能为空'}), 400
+    eps.append(ep)
+    cfg['endpoints'] = eps
+    save_config(cfg)
+    return jsonify({'ok': True, 'id': ep['id']})
 
-    # 生成一段1秒静音音频用于测试(不消耗实际识别额度,只验证连通性)
+@app.route('/api/endpoints/<ep_id>', methods=['PUT'])
+@login_required
+def update_endpoint(ep_id):
+    data = request.json or {}
+    cfg = load_config()
+    eps = cfg.get('endpoints', [])
+    for ep in eps:
+        if ep['id'] == ep_id:
+            if 'name' in data:
+                ep['name'] = data['name'].strip() or ep['name']
+            if 'api_key' in data and data['api_key'].strip():
+                ep['api_key'] = data['api_key'].strip()
+            if 'base_url' in data and data['base_url'].strip():
+                ep['base_url'] = data['base_url'].strip()
+            if 'model' in data and data['model'].strip():
+                ep['model'] = data['model'].strip()
+            save_config(cfg)
+            return jsonify({'ok': True})
+    return jsonify({'error': '接口不存在'}), 404
+
+@app.route('/api/endpoints/<ep_id>', methods=['DELETE'])
+@login_required
+def delete_endpoint(ep_id):
+    cfg = load_config()
+    eps = cfg.get('endpoints', [])
+    cfg['endpoints'] = [ep for ep in eps if ep['id'] != ep_id]
+    save_config(cfg)
+    return jsonify({'ok': True})
+
+@app.route('/api/endpoints/test', methods=['POST'])
+@login_required
+def test_endpoint():
+    """测试接口连通性。可直接传参数测试(未保存),也可传id用已保存的。"""
+    data = request.json or {}
+    ep_id = data.get('id', '')
+
+    if ep_id:  # 用已保存的接口测试
+        cfg = load_config()
+        ep = None
+        for e in cfg.get('endpoints', []):
+            if e['id'] == ep_id:
+                ep = e; break
+        if not ep:
+            return jsonify({'ok': False, 'error': '接口不存在'}), 404
+        api_key = ep.get('api_key', '')
+        base_url = ep.get('base_url', '')
+        model = ep.get('model', '')
+        ep_name = ep.get('name', '')
+    else:  # 用表单参数测试
+        ep_type = data.get('type', 'openai')
+        api_key = data.get('api_key', '')
+        base_url = data.get('base_url', '') or TYPE_DEFAULTS.get(ep_type, {}).get('base_url', '')
+        model = data.get('model', '') or TYPE_DEFAULTS.get(ep_type, {}).get('model', '')
+        ep_name = data.get('name', ep_type)
+
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'API Key 未填写'}), 400
+    if not base_url:
+        return jsonify({'ok': False, 'error': 'Base URL 未填写'}), 400
+
+    # 生成0.5秒静音音频
     import io as _io
     try:
         from pydub import AudioSegment
-        silent = AudioSegment.silent(duration=500)  # 0.5秒静音
+        silent = AudioSegment.silent(duration=500)
         buf = _io.BytesIO()
         silent.export(buf, format='mp3')
         test_audio = buf.getvalue()
@@ -325,7 +384,7 @@ def test_api():
         return jsonify({'ok': False, 'error': '音频生成失败(ffmpeg未安装?)'}), 500
 
     try:
-        url = f"{test_base_url}/audio/transcriptions"
+        url = f"{base_url.rstrip('/')}/audio/transcriptions"
         resp = requests.post(
             url,
             headers={"Authorization": f"Bearer {api_key}"},
@@ -336,7 +395,7 @@ def test_api():
         if resp.status_code == 200:
             d = resp.json()
             text = d.get('text', '')
-            return jsonify({'ok': True, 'message': f'模型 {model} 可用' + (f', 返回: {text[:30]}' if text else '')})
+            return jsonify({'ok': True, 'message': f'「{ep_name}」连接成功 · 模型 {model} 可用'})
         else:
             try:
                 err = resp.json()
@@ -362,28 +421,27 @@ def start_transcribe():
     audio_bytes = file.read()
     engine = request.form.get('engine', 'bcut')
 
-    if engine not in ENGINES:
+    if engine not in STATIC_ENGINES and not engine.startswith('ep:'):
         return jsonify({'error': '未知引擎'}), 400
 
-    # 如果是需要API Key的引擎，读取配置
-    sf_api_key = ''
-    sf_model = 'FunAudioLLM/SenseVoiceSmall'
-    oai_api_key = ''
-    oai_base_url = 'https://api.openai.com/v1'
-    oai_model = 'whisper-1'
-    if engine in ('siliconflow', 'openai'):
+    # 如果是用户配置的接口(ep:xxx)，读取对应endpoint配置
+    ep_api_key = ''
+    ep_base_url = ''
+    ep_model = ''
+    if engine.startswith('ep:'):
+        ep_id = engine[3:]
         cfg = load_config()
-        if engine == 'siliconflow':
-            sf_api_key = cfg.get('siliconflow_api_key', '')
-            sf_model = cfg.get('siliconflow_model', 'FunAudioLLM/SenseVoiceSmall')
-            if not sf_api_key:
-                return jsonify({'error': '硅基流动 API Key 未配置，请先在设置页面填写'}), 400
-        elif engine == 'openai':
-            oai_api_key = cfg.get('openai_api_key', '')
-            oai_base_url = cfg.get('openai_base_url', 'https://api.openai.com/v1')
-            oai_model = cfg.get('openai_model', 'whisper-1')
-            if not oai_api_key:
-                return jsonify({'error': 'OpenAI API Key 未配置，请先在设置页面填写'}), 400
+        ep = None
+        for e in cfg.get('endpoints', []):
+            if e['id'] == ep_id:
+                ep = e; break
+        if not ep:
+            return jsonify({'error': '接口不存在，请检查设置'}), 400
+        if not ep.get('api_key'):
+            return jsonify({'error': f'接口「{ep.get("name","")}」未配置 API Key'}), 400
+        ep_api_key = ep['api_key']
+        ep_base_url = ep.get('base_url', '')
+        ep_model = ep.get('model', '')
 
     task_id = str(uuid.uuid4())[:8]
     tasks[task_id] = {
@@ -411,9 +469,9 @@ def start_transcribe():
             task['logs'].append(f'[{ts}] 开始识别: {filename} ({"%.1f" % (len(audio_bytes)/1024/1024)}MB)')
 
             segments = recognize_audio(audio_bytes, engine, filename, callback,
-                                       api_key=sf_api_key or oai_api_key,
-                                       base_url=oai_base_url,
-                                       model=sf_model if engine == 'siliconflow' else oai_model)
+                                       api_key=ep_api_key,
+                                       base_url=ep_base_url,
+                                       model=ep_model)
 
             task['segments'] = [seg.to_dict() for seg in segments]
             task['status'] = 'done'
