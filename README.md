@@ -127,7 +127,7 @@ ywsj-audio-to-subtitle/
 
 ## 🙏 致谢
 
-- [VideoCaptioner](https://github.com/WEIFENG2333/VideoCaptioner) — 必剪/剪映 ASR 接口实现参考
+- [B站必剪](https://bcut.bilibili.com) — 必剪 ASR 免费云端语音识别 API
 - [Flask](https://flask.palletsprojects.com/) — Web 框架
 - [pydub](https://github.com/jiaaro/pydub) — 音频处理库
 - [pyotp](https://github.com/pyauth/pyotp) — TOTP 两步验证
