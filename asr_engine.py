@@ -524,18 +524,75 @@ class OpenAICompatibleASR:
         return segments
 
     def _split_text_to_segments(self, text: str, duration: float) -> List[ASRSegment]:
+        """纯文本无时间戳时，按语义断句+按字数比例分配时间。"""
         import re
-        parts = [p.strip() for p in re.split(r'[。！？!?\n]+', text) if p.strip()]
-        if len(parts) <= 1:
-            parts = [p.strip() for p in re.split(r'[，,。！？!?\n]+', text) if p.strip()]
+
+        # 第一步：按句号/问号/感叹号/换行 断句
+        sentences = [p.strip() for p in re.split(r'[。！？!?\n]+', text) if p.strip()]
+
+        # 如果整段没有句号(像说话连贯的场景)，按逗号+语义断句
+        if len(sentences) <= 1:
+            sentences = [p.strip() for p in re.split(r'[，,。！？!?\n]+', text) if p.strip()]
+
+        # 第二步：每条字幕限制最多约20字，超长的再按逗号/空格切
+        parts = []
+        for sent in sentences:
+            if len(sent) <= 20:
+                parts.append(sent)
+            else:
+                # 按逗号/顿号再切
+                sub = [s.strip() for s in re.split(r'[，,、；;]+', sent) if s.strip()]
+                if len(sub) <= 1:
+                    # 考虑按空格/连字符切(中英混合场景: "ywsj-kms" "Windows Office")
+                    if (re.search(r'[a-zA-Z]', sent) and (' ' in sent or '-' in sent)):
+                        # 按空格切，连字符保留在词内
+                        words = re.split(r'(?<=[\u4e00-\u9fff，。！？])\s+|\s+(?=[\u4e00-\u9fff])|(?<=\w)\s+(?=\w)', sent)
+                        words = [w.strip() for w in words if w.strip()]
+                        if len(words) <= 1:
+                            words = sent.split(' ')
+                        buf = ''
+                        for s in words:
+                            sep = ' ' if buf and not buf[-1] in '，。！？' else ''
+                            if len(buf) + len(s) + (1 if sep else 0) <= 20:
+                                buf = buf + sep + s if buf else s
+                            else:
+                                if buf: parts.append(buf)
+                                buf = s
+                        if buf: parts.append(buf)
+                    else:
+                        # 纯中文无标点，按字数硬切(每20字)
+                        for i in range(0, len(sent), 18):
+                            parts.append(sent[i:i+18])
+                else:
+                    # 把逗号切出来的短句合并到不超过18字
+                    buf = ''
+                    for s in sub:
+                        if len(buf) + len(s) + 1 <= 20:
+                            buf = buf + s if not buf else buf + '，' + s
+                        else:
+                            if buf: parts.append(buf)
+                            buf = s
+                    if buf: parts.append(buf)
+
         if not parts:
             parts = [text]
+
+        # 第三步：按字数比例分配时间（不是均匀分）
+        total_chars = sum(len(p) for p in parts)
+        if total_chars == 0:
+            total_chars = 1
         total_ms = int(duration * 1000)
-        seg_ms = total_ms // len(parts)
         segments = []
+        current_ms = 0
         for i, part in enumerate(parts):
-            start = i * seg_ms
-            end = (i + 1) * seg_ms if i < len(parts) - 1 else total_ms
+            char_ratio = len(part) / total_chars
+            seg_ms = int(total_ms * char_ratio)
+            start = current_ms
+            if i == len(parts) - 1:
+                end = total_ms  # 最后一条吃满
+            else:
+                end = start + seg_ms
+            current_ms = end
             segments.append(ASRSegment(part, start, end))
         return segments
 
