@@ -229,6 +229,8 @@
                             <option value="openai">🔵 OpenAI</option>
                             <option value="groq">🟠 Groq（免费）</option>
                         </select>
+                        <div id="epTypeHint" style="margin-top:10px; padding:10px 12px; background:var(--bg); border-radius:8px; border:1px solid var(--border); font-size:12px; line-height:1.7;">
+                        </div>
                     </div>
                     <div class="form-group" style="margin-bottom:12px;">
                         <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">API Base URL</label>
@@ -429,9 +431,29 @@
     window.showAddEpForm = showAddEpForm;
     function cancelEpForm() { document.getElementById('epForm').style.display = 'none'; }
     window.cancelEpForm = cancelEpForm;
+    var EP_TYPE_HINTS = {
+        siliconflow: '<b>🟢 硅基流动 SiliconFlow</b><br>' +
+            '国内可直连，注册送免费额度，支持中/英/日/韩等多语言。<br>' +
+            '推荐模型：<code>FunAudioLLM/SenseVoiceSmall</code>（快·多语言）<br>' +
+            '⚠️ 该模型返回纯文本无逐句时间戳，断句为智能估算。<br>' +
+            '🔗 获取 API Key：<a href="https://cloud.siliconflow.cn" target="_blank" style="color:var(--accent);">cloud.siliconflow.cn</a>',
+        openai: '<b>🔵 OpenAI 官方</b><br>' +
+            'Whisper 模型，支持90+语言，返回精确逐句时间戳（断句最准）。<br>' +
+            '推荐模型：<code>whisper-1</code><br>' +
+            '💰 按用量付费（$0.006/分钟），需海外信用卡注册。<br>' +
+            '🔗 获取 API Key：<a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--accent);">platform.openai.com/api-keys</a>',
+        groq: '<b>🟠 Groq（推荐·免费）</b><br>' +
+            '免费额度大（每天约4小时音频），速度极快，支持90+语言。<br>' +
+            '推荐模型：<code>whisper-large-v3</code> 或 <code>whisper-large-v3-turbo</code>（更快）<br>' +
+            '✅ 返回精确逐句时间戳，断句效果最好。<br>' +
+            '🔗 获取 API Key：<a href="https://console.groq.com/keys" target="_blank" style="color:var(--accent);">console.groq.com/keys</a>（Google账号登录即可）',
+    };
     function onEpTypeChange() {
         var t = document.getElementById('epType').value;
         var d = EP_TYPE_DEFAULTS[t] || {};
+        // 更新提示
+        document.getElementById('epTypeHint').innerHTML = EP_TYPE_HINTS[t] || '';
+        // 更新默认值
         if (!document.getElementById('epBaseUrl').value || Object.values(EP_TYPE_DEFAULTS).some(function(e){return e.base_url===document.getElementById('epBaseUrl').value;})) {
             document.getElementById('epBaseUrl').value = d.base_url || '';
         }
