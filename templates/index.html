@@ -104,10 +104,11 @@
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
             </a>
             <button class="theme-btn" onclick="cleanupCache()" title="清理缓存" style="width:auto; padding:6px 10px; font-size:13px;">🧹</button>
+            <button class="theme-btn" onclick="showSettings()" title="设置" style="width:auto; padding:6px 10px; font-size:13px;">⚙️ 设置</button>
             <div class="user-menu" id="userMenu" style="display:none;">
                 <button class="user-btn" onclick="toggleUserMenu()">👤 账户 ▾</button>
                 <div class="user-dropdown" id="userDropdown">
-                    <button onclick="showChangePassword()">🔑 修改密码</button>
+                    <button onclick="showSettings('account')">⚙️ 设置</button>
                     <button onclick="doLogout()">🚪 退出登录</button>
                 </div>
             </div>
@@ -142,9 +143,8 @@
                     <span>🌐</span><span id="engineLangText"></span>
                 </div>
                 <div id="sfKeyHint" style="margin-top:8px; font-size:12px; display:none;">
-                    <span style="color:var(--warning);">⚠️ 需要 API Key</span>
-                    <a href="#" onclick="showSfConfig(); return false;" style="color:var(--accent); margin-left:8px;">点击配置</a>
-                    <span id="sfKeyStatus" style="margin-left:8px; color:var(--muted);"></span>
+                    <span id="sfKeyStatus" style="color:var(--muted);"></span>
+                    <a href="#" onclick="showSettings('api'); return false;" style="color:var(--accent); margin-left:8px;">前往设置</a>
                 </div>
             </div>
         </div>
@@ -195,33 +195,51 @@
     </div>
 </div>
 
-<div class="modal-overlay" id="pwdModal">
-    <div class="modal">
-        <h3>🔑 修改密码</h3>
-        <div class="form-group" style="margin-bottom:12px;"><label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">旧密码</label><input type="password" id="oldPassword" placeholder="输入当前密码"></div>
-        <div class="form-group" style="margin-bottom:12px;"><label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">新密码</label><input type="password" id="newPassword" placeholder="输入新密码（至少4位）"></div>
-        <div class="form-group" style="margin-bottom:16px;"><label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">确认新密码</label><input type="password" id="confirmPassword" placeholder="再次输入新密码"></div>
-        <div class="btn-row" style="margin-top:0;"><button class="btn btn-secondary" onclick="closePwdModal()">取消</button><button class="btn" onclick="submitChangePassword()">确认修改</button></div>
-    </div>
-</div>
-
-<div class="modal-overlay" id="sfModal">
-    <div class="modal" style="width:440px;">
-        <h3>🔑 硅基流动 ASR 配置</h3>
-        <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">配置硅基流动 API Key 后可使用多语言语音识别（中/英/日/韩/粤等）。<br>申请地址：<a href="https://cloud.siliconflow.cn" target="_blank" style="color:var(--accent);">cloud.siliconflow.cn</a></p>
-        <div class="form-group" style="margin-bottom:12px;">
-            <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">API Key</label>
-            <input type="text" id="sfApiKey" placeholder="sk-xxxxxxxx...">
+<div class="modal-overlay" id="settingsModal">
+    <div class="modal" style="width:480px; max-height:90vh; display:flex; flex-direction:column;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-shrink:0;">
+            <h3 style="margin:0;">⚙️ 设置</h3>
+            <button class="theme-btn" onclick="closeSettings()" style="width:32px; height:32px; padding:0; font-size:18px;">✕</button>
         </div>
-        <div class="form-group" style="margin-bottom:16px;">
-            <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">模型（默认 SenseVoiceSmall）</label>
-            <select id="sfModel" style="width:100%;">
-                <option value="FunAudioLLM/SenseVoiceSmall">SenseVoiceSmall（推荐·多语言·快）</option>
-                <option value="XingChenAGI/XingChenASR-V3.2-Ultra">XingChenASR-V3.2-Ultra（中文·高精度）</option>
-                <option value="XingChenAGI/XingChenASR-V3.2">XingChenASR-V3.2（中文·标准）</option>
-            </select>
+        <div class="settings-tabs" style="display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid var(--border); flex-shrink:0;">
+            <button class="settings-tab active" data-tab="api" onclick="switchSettingsTab('api')" style="flex:1; padding:10px; background:none; border:none; color:var(--accent); border-bottom:2px solid var(--accent); font-size:14px; cursor:pointer; transition:all 0.2s;">🔑 API 配置</button>
+            <button class="settings-tab" data-tab="account" onclick="switchSettingsTab('account')" style="flex:1; padding:10px; background:none; border:none; color:var(--muted); border-bottom:2px solid transparent; font-size:14px; cursor:pointer; transition:all 0.2s;">👤 账户安全</button>
         </div>
-        <div class="btn-row" style="margin-top:0;"><button class="btn btn-secondary" onclick="closeSfModal()">取消</button><button class="btn" onclick="saveSfConfig()">保存配置</button></div>
+        <div style="overflow-y:auto; flex:1;">
+            <!-- API 配置 Tab -->
+            <div class="tab-content" id="tabApi">
+                <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">配置硅基流动 API Key 后可使用多语言语音识别（中/英/日/韩/粤等）。<br>申请地址：<a href="https://cloud.siliconflow.cn" target="_blank" style="color:var(--accent);">cloud.siliconflow.cn</a></p>
+                <div class="form-group" style="margin-bottom:14px;">
+                    <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">API Key</label>
+                    <input type="text" id="sfApiKey" placeholder="sk-xxxxxxxx...">
+                </div>
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">识别模型</label>
+                    <select id="sfModel" style="width:100%;">
+                        <option value="FunAudioLLM/SenseVoiceSmall">SenseVoiceSmall（推荐·多语言·快）</option>
+                        <option value="XingChenAGI/XingChenASR-V3.2-Ultra">XingChenASR-V3.2-Ultra（中文·高精度）</option>
+                        <option value="XingChenAGI/XingChenASR-V3.2">XingChenASR-V3.2（中文·标准）</option>
+                    </select>
+                </div>
+                <button class="btn" onclick="saveSfConfig()" style="width:100%;">💾 保存 API 配置</button>
+            </div>
+            <!-- 账户安全 Tab -->
+            <div class="tab-content" id="tabAccount" style="display:none;">
+                <div class="form-group" style="margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">旧密码</label>
+                    <input type="password" id="oldPassword" placeholder="输入当前密码">
+                </div>
+                <div class="form-group" style="margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">新密码</label>
+                    <input type="password" id="newPassword" placeholder="输入新密码（至少4位）">
+                </div>
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label style="display:block;font-size:13px;color:var(--muted);margin-bottom:6px;">确认新密码</label>
+                    <input type="password" id="confirmPassword" placeholder="再次输入新密码">
+                </div>
+                <button class="btn" onclick="submitChangePassword()" style="width:100%;">🔑 修改密码</button>
+            </div>
+        </div>
     </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -338,17 +356,37 @@
             }
         }).catch(function(){});
     }
-    function showSfConfig() {
+    // ===== 设置面板 =====
+    function showSettings(tab) {
+        // 加载当前配置
         fetch('/api/config').then(function(r){return r.json();}).then(function(d){
             document.getElementById('sfModel').value = d.siliconflow_model || 'FunAudioLLM/SenseVoiceSmall';
-            document.getElementById('sfApiKey').value = '';
-            document.getElementById('sfApiKey').placeholder = d.siliconflow_api_key_set ? ('当前: ' + d.siliconflow_api_key) : 'sk-xxxxxxxx...';
-            document.getElementById('sfModal').classList.add('show');
+            var inp = document.getElementById('sfApiKey');
+            inp.value = '';
+            inp.placeholder = d.siliconflow_api_key_set ? ('当前: ' + d.siliconflow_api_key) : 'sk-xxxxxxxx...';
         });
+        document.getElementById('settingsModal').classList.add('show');
+        if (tab) switchSettingsTab(tab); else switchSettingsTab('api');
     }
-    window.showSfConfig = showSfConfig;
-    function closeSfModal() { document.getElementById('sfModal').classList.remove('show'); }
-    window.closeSfModal = closeSfModal;
+    window.showSettings = showSettings;
+    function closeSettings() { document.getElementById('settingsModal').classList.remove('show'); }
+    window.closeSettings = closeSettings;
+    function switchSettingsTab(tab) {
+        document.querySelectorAll('.settings-tab').forEach(function(btn){
+            if (btn.dataset.tab === tab) {
+                btn.classList.add('active');
+                btn.style.color = 'var(--accent)';
+                btn.style.borderBottom = '2px solid var(--accent)';
+            } else {
+                btn.classList.remove('active');
+                btn.style.color = 'var(--muted)';
+                btn.style.borderBottom = '2px solid transparent';
+            }
+        });
+        document.getElementById('tabApi').style.display = (tab === 'api') ? 'block' : 'none';
+        document.getElementById('tabAccount').style.display = (tab === 'account') ? 'block' : 'none';
+    }
+    window.switchSettingsTab = switchSettingsTab;
     function saveSfConfig() {
         var key = document.getElementById('sfApiKey').value.trim();
         var model = document.getElementById('sfModel').value;
@@ -357,7 +395,7 @@
         fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
             .then(function(r){return r.json();})
             .then(function(d){
-                if (d.ok) { showToast('配置已保存', 'success'); closeSfModal(); loadSfStatus(); }
+                if (d.ok) { showToast('配置已保存', 'success'); loadSfStatus(); }
                 else { showToast('保存失败', 'error'); }
             })
             .catch(function(e){ showToast('保存失败: ' + e.message, 'error'); });
@@ -486,8 +524,6 @@
     });
     window.toggleUserMenu = function() { document.getElementById('userDropdown').classList.toggle('show'); };
     window.doLogout = function() { window.location.href = '/logout'; };
-    window.showChangePassword = function() { document.getElementById('pwdModal').classList.add('show'); };
-    window.closePwdModal = function() { document.getElementById('pwdModal').classList.remove('show'); };
     window.submitChangePassword = function() {
         var oldPwd = document.getElementById('oldPassword').value;
         var newPwd = document.getElementById('newPassword').value;
@@ -496,7 +532,7 @@
         if (newPwd !== confirmPwd) { showToast('两次密码不一致', 'error'); return; }
         fetch('/api/auth/change-password', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ old_password: oldPwd, new_password: newPwd }) })
             .then(function(r){return r.json();}).then(function(data){
-                if (data.ok) { showToast('密码已修改', 'success'); closePwdModal(); }
+                if (data.ok) { showToast('密码已修改', 'success'); closeSettings(); }
                 else { showToast(data.error || '修改失败', 'error'); }
             });
     };
