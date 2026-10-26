@@ -1,0 +1,11 @@
+data/
+__pycache__/
+*.pyc
+*.pyo
+*.db
+.env
+.git/
+.gitignore
+*.md
+tests/
+tmp/
