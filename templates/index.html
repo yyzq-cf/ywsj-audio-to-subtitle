@@ -119,8 +119,9 @@
         <div class="card-title">📤 第一步：上传音频文件</div>
         <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
             <div class="icon">🎵</div>
-            <p>点击或拖拽音视频文件到这里</p>
+            <p>点击或拖拽音频/视频文件到这里</p>
             <p style="font-size:12px;margin-top:4px;">支持 MP3 / WAV / M4A 等音频，MP4 / MKV / MOV 等视频，最大 200MB</p>
+            <p style="font-size:11px;margin-top:6px;color:var(--muted);">💡 建议尽量上传音频文件，速度更快。上传视频时会自动提取音轨进行识别。</p>
         </div>
         <input type="file" id="fileInput" accept=".mp3,.wav,.m4a,.flac,.ogg,.aac,.wma,.opus,.mp4,.mkv,.avi,.mov,.webm,.flv,.ts,.m4v" style="display:none">
         <div class="file-info" id="fileInfo">
