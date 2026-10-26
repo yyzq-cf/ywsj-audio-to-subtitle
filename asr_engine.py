@@ -499,6 +499,31 @@ class OpenAICompatibleASR:
         url = f"{self.base_url}/audio/transcriptions"
         headers = {"Authorization": f"Bearer {self.api_key}"}
 
+        # 根据实际音频格式设置文件名和Content-Type
+        video_exts = ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.ts', '.m4v', '.wmv')
+        if self.filename.lower().endswith(video_exts):
+            # 视频已提取为WAV
+            send_filename = 'audio.wav'
+            send_content_type = 'audio/wav'
+        elif self.filename.lower().endswith('.mp3'):
+            send_filename = self.filename
+            send_content_type = 'audio/mp3'
+        elif self.filename.lower().endswith('.wav'):
+            send_filename = self.filename
+            send_content_type = 'audio/wav'
+        elif self.filename.lower().endswith('.m4a'):
+            send_filename = self.filename
+            send_content_type = 'audio/mp4'
+        elif self.filename.lower().endswith('.ogg'):
+            send_filename = self.filename
+            send_content_type = 'audio/ogg'
+        elif self.filename.lower().endswith('.flac'):
+            send_filename = self.filename
+            send_content_type = 'audio/flac'
+        else:
+            send_filename = self.filename or 'audio.mp3'
+            send_content_type = 'audio/mpeg'
+
         # 获取音频时长
         try:
             audio = AudioSegment.from_file(io.BytesIO(self.audio_bytes))
@@ -511,7 +536,7 @@ class OpenAICompatibleASR:
         resp = requests.post(
             url,
             headers=headers,
-            files={"file": (self.filename or "audio.mp3", self.audio_bytes, "audio/mp3")},
+            files={"file": (send_filename, self.audio_bytes, send_content_type)},
             data={
                 "model": self.model,
                 "response_format": "verbose_json",
