@@ -303,20 +303,61 @@
         if (!selectedFile) { showToast('请先上传音频文件', 'error'); return; }
         document.getElementById('transcribeBtn').disabled = true;
         document.getElementById('editorSection').classList.remove('show');
-        showProgress('上传中...');
 
         var formData = new FormData();
         formData.append('file', selectedFile);
         formData.append('engine', document.getElementById('engine').value);
 
-        fetch('/api/transcribe', { method: 'POST', body: formData })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.error) { showToast(data.error, 'error'); document.getElementById('transcribeBtn').disabled = false; hideProgress(); return; }
-                currentTaskId = data.task_id;
-                pollProgress();
-            })
-            .catch(function(e) { showToast('上传失败: ' + e.message, 'error'); document.getElementById('transcribeBtn').disabled = false; hideProgress(); });
+        var fileSize = selectedFile.size;
+        var fileName = selectedFile.name;
+        showProgress('准备上传 ' + fileName + ' (' + formatSize(fileSize) + ')...');
+        document.getElementById('progressFill').style.width = '0%';
+        document.getElementById('progressPercent').textContent = '0%';
+
+        // 用XMLHttpRequest获取上传进度
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/transcribe');
+
+        // 上传进度
+        xhr.upload.onprogress = function(e) {
+            if (e.lengthComputable) {
+                var pct = Math.round(e.loaded / e.total * 100);
+                var loadedStr = formatSize(e.loaded);
+                var totalStr = formatSize(e.total);
+                document.getElementById('progressFill').style.width = pct + '%';
+                document.getElementById('progressPercent').textContent = pct + '%';
+                document.getElementById('progressText').textContent = '📤 上传中 ' + pct + '% (' + loadedStr + ' / ' + totalStr + ')';
+            }
+        };
+
+        xhr.onload = function() {
+            try {
+                var data = JSON.parse(xhr.responseText);
+                if (data.error) {
+                    showToast(data.error, 'error');
+                    document.getElementById('transcribeBtn').disabled = false;
+                    hideProgress();
+                } else {
+                    currentTaskId = data.task_id;
+                    document.getElementById('progressFill').style.width = '0%';
+                    document.getElementById('progressPercent').textContent = '0%';
+                    document.getElementById('progressText').textContent = '上传完成，等待识别...';
+                    pollProgress();
+                }
+            } catch(e) {
+                showToast('解析响应失败', 'error');
+                document.getElementById('transcribeBtn').disabled = false;
+                hideProgress();
+            }
+        };
+
+        xhr.onerror = function() {
+            showToast('上传失败，请检查网络', 'error');
+            document.getElementById('transcribeBtn').disabled = false;
+            hideProgress();
+        };
+
+        xhr.send(formData);
     };
 
     function pollProgress() {
