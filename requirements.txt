@@ -4,3 +4,4 @@ requests==2.32.4
 pydub==0.25.1
 pyotp==2.9.0
 qrcode[pil]==7.4.2
+cryptography==44.0.1

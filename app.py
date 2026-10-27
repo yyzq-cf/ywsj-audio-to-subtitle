@@ -12,11 +12,55 @@ import pyotp
 import qrcode
 import base64
 from functools import wraps
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from flask import Flask, request, jsonify, render_template, Response, session, redirect, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from asr_engine import STATIC_ENGINES, recognize_audio, ASRSegment, build_srt, build_vtt, build_txt, ms_to_srt_time
+
+# ===== API Key encryption (Fernet) =====
+_fernet = None
+
+def _get_fernet():
+    """Lazily init Fernet cipher using a key derived from the Flask secret key."""
+    global _fernet
+    if _fernet is not None:
+        return _fernet
+    import hashlib
+    from cryptography.fernet import Fernet
+    # Derive a 32-byte key from the app's secret key (which is persisted)
+    raw = app.secret_key.encode('utf-8') if app.secret_key else b'default-secret-key-change-me'
+    key = hashlib.sha256(raw).hexdigest()[:32]
+    import base64
+    fernet_key = base64.urlsafe_b64encode(hashlib.sha256(raw).digest())
+    _fernet = Fernet(fernet_key)
+    return _fernet
+
+def encrypt_api_key(plain_key: str) -> str:
+    """Encrypt an API key. Returns 'enc:...' prefixed string."""
+    if not plain_key:
+        return ''
+    if plain_key.startswith('enc:'):
+        return plain_key  # already encrypted
+    try:
+        token = _get_fernet().encrypt(plain_key.encode('utf-8')).decode('ascii')
+        return 'enc:' + token
+    except Exception:
+        return plain_key  # fallback to plain if encryption fails
+
+def decrypt_api_key(stored_key: str) -> str:
+    """Decrypt an API key. Handles both old plain keys and new 'enc:...' keys."""
+    if not stored_key:
+        return ''
+    if not stored_key.startswith('enc:'):
+        return stored_key  # old plain key, return as-is (backward compat)
+    try:
+        return _get_fernet().decrypt(stored_key[4:].encode('ascii')).decode('utf-8')
+    except Exception:
+        return ''  # decryption failed (e.g. secret key changed)
+
+def _is_encrypted(val: str) -> bool:
+    return bool(val and val.startswith('enc:'))
 
 # ywsj-audio-to-subtitle
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -410,6 +454,49 @@ TYPE_DEFAULTS = {
     'groq':        {'base_url': 'https://api.groq.com/openai/v1',  'model': 'whisper-large-v3'},
 }
 
+# ===== SSRF protection =====
+import ipaddress
+
+def _is_safe_url(url_str: str) -> bool:
+    """Reject URLs pointing to internal/private/loopback addresses."""
+    if not url_str:
+        return False
+    try:
+        parsed = urlparse(url_str)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        hostname = parsed.hostname or ''
+        if not hostname:
+            return False
+        # Block obvious internal hostnames
+        if hostname.lower() in ('localhost', 'ip6-localhost', 'ip6-loopback'):
+            return False
+        # Try to parse as IP address
+        try:
+            ip = ipaddress.ip_address(hostname)
+            # Reject private, loopback, link-local, multicast, unspecified
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+                return False
+        except ValueError:
+            # It's a domain name, not an IP — allow it
+            # But block internal-looking TLDs
+            if hostname.endswith('.internal') or hostname.endswith('.local') or hostname.endswith('.localhost'):
+                return False
+        # Block common metadata endpoints
+        if hostname in ('169.254.169.254', 'fd00:ec2::254') or hostname.startswith('169.254.'):
+            return False
+        return True
+    except Exception:
+        return False
+
+def _validate_base_url(base_url: str) -> str:
+    """Validate base_url is safe. Returns error message or empty string if OK."""
+    if not base_url:
+        return 'Base URL 未填写'
+    if not _is_safe_url(base_url):
+        return 'Base URL 不安全（不允许内网/本地地址）'
+    return ''
+
 @app.route('/api/endpoints', methods=['GET'])
 @login_required
 def get_endpoints():
@@ -419,7 +506,7 @@ def get_endpoints():
         'id': ep['id'],
         'name': ep.get('name', ''),
         'type': ep.get('type', 'openai'),
-        'api_key': _mask(ep.get('api_key', '')),
+        'api_key': _mask(decrypt_api_key(ep.get('api_key', ''))),
         'api_key_set': bool(ep.get('api_key')),
         'base_url': ep.get('base_url', TYPE_DEFAULTS.get(ep.get('type','openai'),{}).get('base_url','')),
         'model': ep.get('model', ''),
@@ -438,7 +525,7 @@ def add_endpoint():
         'id': str(uuid.uuid4())[:8],
         'name': data.get('name', '').strip() or f"{ep_type}-{len(eps)+1}",
         'type': ep_type,
-        'api_key': data.get('api_key', '').strip(),
+        'api_key': encrypt_api_key(data.get('api_key', '').strip()),
         'base_url': data.get('base_url', '').strip() or TYPE_DEFAULTS[ep_type]['base_url'],
         'model': data.get('model', '').strip() or TYPE_DEFAULTS[ep_type]['model'],
     }
@@ -460,7 +547,7 @@ def update_endpoint(ep_id):
             if 'name' in data:
                 ep['name'] = data['name'].strip() or ep['name']
             if 'api_key' in data and data['api_key'].strip():
-                ep['api_key'] = data['api_key'].strip()
+                ep['api_key'] = encrypt_api_key(data['api_key'].strip())
             if 'base_url' in data and data['base_url'].strip():
                 ep['base_url'] = data['base_url'].strip()
             if 'model' in data and data['model'].strip():
@@ -493,7 +580,7 @@ def test_endpoint():
                 ep = e; break
         if not ep:
             return jsonify({'ok': False, 'error': '接口不存在'}), 404
-        api_key = ep.get('api_key', '')
+        api_key = decrypt_api_key(ep.get('api_key', ''))
         base_url = ep.get('base_url', '')
         model = ep.get('model', '')
         ep_name = ep.get('name', '')
@@ -506,8 +593,9 @@ def test_endpoint():
 
     if not api_key:
         return jsonify({'ok': False, 'error': 'API Key 未填写'}), 400
-    if not base_url:
-        return jsonify({'ok': False, 'error': 'Base URL 未填写'}), 400
+    url_err = _validate_base_url(base_url)
+    if url_err:
+        return jsonify({'ok': False, 'error': url_err}), 400
 
     # 生成0.5秒静音音频
     import io as _io
@@ -576,9 +664,13 @@ def start_transcribe():
             return jsonify({'error': '接口不存在，请检查设置'}), 400
         if not ep.get('api_key'):
             return jsonify({'error': f'接口「{ep.get("name","")}」未配置 API Key'}), 400
-        ep_api_key = ep['api_key']
+        ep_api_key = decrypt_api_key(ep.get('api_key', ''))
         ep_base_url = ep.get('base_url', '')
         ep_model = ep.get('model', '')
+        # SSRF protection: validate base_url before making outbound request
+        url_err = _validate_base_url(ep_base_url)
+        if url_err:
+            return jsonify({'error': url_err}), 400
 
     task_id = str(uuid.uuid4())[:8]
     tasks[task_id] = {
@@ -781,4 +873,4 @@ def health():
     return jsonify({'status': 'ok'})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5200, debug=True)
+    app.run(host='0.0.0.0', port=5200, debug=os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true'))
