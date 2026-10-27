@@ -448,6 +448,25 @@ def _mask(key):
     if not key: return ''
     return key[:8] + '****' + key[-4:] if len(key) > 12 else '****'
 
+# Auto-migrate old plain-text API keys to encrypted on startup
+def _migrate_api_keys():
+    """Encrypt any old plain-text API keys in config.json."""
+    try:
+        cfg = load_config()
+        changed = False
+        for ep in cfg.get('endpoints', []):
+            key = ep.get('api_key', '')
+            if key and not key.startswith('enc:'):
+                ep['api_key'] = encrypt_api_key(key)
+                changed = True
+        if changed:
+            save_config(cfg)
+            logger.info('Migrated plain-text API keys to encrypted storage')
+    except Exception as e:
+        logger.warning(f'API key migration failed: {e}')
+
+_migrate_api_keys()
+
 TYPE_DEFAULTS = {
     'siliconflow': {'base_url': 'https://api.siliconflow.cn/v1', 'model': 'FunAudioLLM/SenseVoiceSmall'},
     'openai':      {'base_url': 'https://api.openai.com/v1',     'model': 'whisper-1'},
