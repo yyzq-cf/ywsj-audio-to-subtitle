@@ -11,7 +11,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-latest]
 
     steps:
       - name: Checkout code
@@ -33,14 +33,8 @@ jobs:
           pyinstaller app.spec
 
       - name: Package Artifacts (Windows)
-        if: startsWith(matrix.os, 'windows')
         run: |
           Compress-Archive -Path dist/AudioToSubtitle.exe -DestinationPath AudioToSubtitle-Windows.zip
-
-      - name: Package Artifacts (macOS)
-        if: startsWith(matrix.os, 'macos')
-        run: |
-          cd dist && zip -r AudioToSubtitle-macOS.zip AudioToSubtitle.app && cd ..
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
@@ -48,6 +42,5 @@ jobs:
           files: |
             dist/AudioToSubtitle.exe
             dist/AudioToSubtitle-Windows.zip
-            dist/AudioToSubtitle-macOS.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
