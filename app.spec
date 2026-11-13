@@ -1,6 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+
 block_cipher = None
+
+# 确保如果本地没有 static 目录时自动创建一个空的，防止 PyInstaller 报错
+if not os.path.exists('static'):
+    os.makedirs('static')
 
 a = Analysis(
     ['desktop_app.py'],
