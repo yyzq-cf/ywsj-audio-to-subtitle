@@ -1,8 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-import sys
-import os
-
 block_cipher = None
 
 a = Analysis(
@@ -19,11 +16,9 @@ a = Analysis(
         'requests', 
         'webview', 
         'jinja2', 
-        'werkzeug', 
-        'engineio.async_drivers.threading',
-        'click',
-        'itsdangerous',
-        'blinker'
+        'werkzeug',
+        'clr_loader',
+        'pythonnet'
     ],
     hookspath=[],
     hooksconfig={},
@@ -58,11 +53,3 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
-
-if sys.platform == 'darwin':
-    app = BUNDLE(
-        exe,
-        name='AudioToSubtitle.app',
-        icon=None,
-        bundle_identifier='com.ywsj.audiotosubtitle',
-    )
