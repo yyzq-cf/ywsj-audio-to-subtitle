@@ -1,0 +1,53 @@
+name: Build Native Desktop App
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-desktop:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pywebview flask pydub requests jinja2 werkzeug
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller app.spec
+
+      - name: Package Artifacts (Windows)
+        if: startsWith(matrix.os, 'windows')
+        run: |
+          Compress-Archive -Path dist/AudioToSubtitle.exe -DestinationPath AudioToSubtitle-Windows.zip
+
+      - name: Package Artifacts (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          cd dist && zip -r AudioToSubtitle-macOS.zip AudioToSubtitle.app && cd ..
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/AudioToSubtitle.exe
+            dist/AudioToSubtitle-Windows.zip
+            dist/AudioToSubtitle-macOS.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
