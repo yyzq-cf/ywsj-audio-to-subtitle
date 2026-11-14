@@ -35,14 +35,17 @@ jobs:
         run: |
           Compress-Archive -Path dist/AudioToSubtitle.exe -DestinationPath AudioToSubtitle-Windows.zip
 
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v2
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            dist/AudioToSubtitle.exe
-            AudioToSubtitle-Windows.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: windows-asset
+          path: AudioToSubtitle-Windows.zip
+
+      - name: Upload EXE Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: dist/AudioToSubtitle.exe
 
   build-mac-intel:
     name: Build for macOS (Intel)
@@ -73,13 +76,11 @@ jobs:
         run: |
           cd dist && zip -r AudioToSubtitle-macOS-Intel.zip AudioToSubtitle.app && cd ..
 
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v2
+      - name: Upload Mac Intel Artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            dist/AudioToSubtitle-macOS-Intel.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: mac-intel-asset
+          path: dist/AudioToSubtitle-macOS-Intel.zip
 
   build-mac-arm64:
     name: Build for macOS (Apple Silicon)
@@ -110,10 +111,43 @@ jobs:
         run: |
           cd dist && zip -r AudioToSubtitle-macOS-AppleSilicon.zip AudioToSubtitle.app && cd ..
 
+      - name: Upload Mac Arm64 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-arm64-asset
+          path: dist/AudioToSubtitle-macOS-AppleSilicon.zip
+
+  release:
+    needs: [build-windows, build-mac-intel, build-mac-arm64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all workflow artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/AudioToSubtitle-macOS-AppleSilicon.zip
+            artifacts/**/*.zip
+            artifacts/**/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-asset
+          path: AudioToSubtitle-Windows.zip
+
+      - name: Upload EXE Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: dist/AudioToSubtitle.exe
