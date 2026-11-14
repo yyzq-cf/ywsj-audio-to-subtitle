@@ -80,3 +80,40 @@ jobs:
             dist/AudioToSubtitle-macOS-Intel.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-mac-arm64:
+    name: Build for macOS (Apple Silicon)
+    runs-on: macos-14
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pywebview flask pydub requests jinja2 werkzeug pyobjc-framework-Cocoa pyobjc-framework-WebKit
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller app.spec
+
+      - name: Package Artifacts (macOS Apple Silicon)
+        run: |
+          cd dist && zip -r AudioToSubtitle-macOS-AppleSilicon.zip AudioToSubtitle.app && cd ..
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/AudioToSubtitle-macOS-AppleSilicon.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
